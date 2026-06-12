@@ -1,0 +1,41 @@
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.api.routes.health import router as health_router
+from app.core.config import settings
+from app.core.logging import get_logger, setup_logging
+from app.db.migrations import run_migrations
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    setup_logging()
+    logger = get_logger(__name__)
+    logger.info("Oráculo Mundial 2026 — startup (env=%s)", settings.ENVIRONMENT)
+    run_migrations()
+    yield
+    logger.info("Oráculo Mundial 2026 — shutdown")
+
+
+app = FastAPI(
+    title="Oráculo Mundial 2026",
+    version="0.1.0",
+    lifespan=lifespan,
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(health_router)
