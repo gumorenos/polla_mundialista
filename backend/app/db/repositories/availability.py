@@ -60,6 +60,26 @@ class AvailabilityRepository:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def insert_context_adjustment(
+        self,
+        team_id: str,
+        attack_factor: float,
+        defense_factor: float,
+        notes: str,
+        adjustment_type: str = "injury",
+    ) -> str:
+        """Persist an injury-based context adjustment for a team."""
+        adj_id = str(uuid.uuid4())
+        self._c.execute(
+            """
+            INSERT INTO team_context_adjustments
+                (id, team_id, adjustment_type, attack_factor, defense_factor, notes)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (adj_id, team_id, adjustment_type, attack_factor, defense_factor, notes),
+        )
+        return adj_id
+
     def get_by_player(self, player_key: str) -> list[dict[str, Any]]:
         rows = self._c.execute(
             """

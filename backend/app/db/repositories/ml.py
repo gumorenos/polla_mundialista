@@ -79,3 +79,62 @@ class MLRepository:
         self._c.execute(
             "UPDATE ml_models SET is_active = 1 WHERE id = ?", (model_id,)
         )
+
+    def update_training_run(
+        self,
+        run_id: str,
+        status: str,
+        started_at: str | None = None,
+        finished_at: str | None = None,
+        error_message: str | None = None,
+    ) -> None:
+        """Update status and optional timestamps / error on a training run."""
+        self._c.execute(
+            """
+            UPDATE ml_training_runs
+               SET status        = ?,
+                   started_at    = COALESCE(?, started_at),
+                   finished_at   = COALESCE(?, finished_at),
+                   error_message = COALESCE(?, error_message)
+             WHERE id = ?
+            """,
+            (status, started_at, finished_at, error_message, run_id),
+        )
+
+    def save_feature_snapshot(
+        self,
+        training_run_id: str,
+        feature_names: list[str],
+        feature_importances: list[float] | None,
+    ) -> str:
+        snapshot_id = str(uuid.uuid4())
+        import json
+        self._c.execute(
+            """
+            INSERT INTO ml_feature_snapshots
+                (id, training_run_id, feature_names, feature_importances)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                snapshot_id, training_run_id,
+                json.dumps(feature_names),
+                json.dumps(feature_importances) if feature_importances else None,
+            ),
+        )
+        return snapshot_id
+
+    def list_models(self) -> list[dict[str, Any]]:
+        """Return all trained ML models ordered by Brier score then recency."""
+        rows = self._c.execute(
+            """
+            SELECT m.id, m.training_run_id, m.algorithm, m.model_path,
+                   m.brier_score, m.log_loss, m.accuracy, m.is_active,
+                   m.created_at,
+                   r.train_start_year, r.validation_split,
+                   r.status AS run_status
+              FROM ml_models m
+         LEFT JOIN ml_training_runs r ON m.training_run_id = r.id
+             ORDER BY m.brier_score ASC, m.created_at DESC
+            """
+        ).fetchall()
+        return [dict(r) for r in rows]

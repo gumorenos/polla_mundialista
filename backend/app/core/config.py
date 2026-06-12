@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     # Database
     # ------------------------------------------------------------------
     SQLITE_PATH: str = "data/sqlite/oraculo.db"
+    DATA_RAW_PATH: str = "data/raw"
 
     # ------------------------------------------------------------------
     # Logging
@@ -94,6 +95,7 @@ class Settings(BaseSettings):
     ML_TRAIN_START_YEAR: int = 2010
     ML_VALIDATION_SPLIT: float = 0.2
     ML_PREFERRED_ALGORITHM: str = "lightgbm"
+    ML_MODELS_PATH: str = "data/models"
 
     # ------------------------------------------------------------------
     # Scheduler

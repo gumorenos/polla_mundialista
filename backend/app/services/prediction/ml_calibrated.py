@@ -1,0 +1,154 @@
+"""ML-calibrated prediction model (LightGBM / XGBoost).
+
+Loads the best active model from the DB, builds the feature vector for a
+given match using feature_builder, and returns probabilities calibrated by the
+trained classifier.
+
+Falls back to Poisson+DC probabilities if no trained model is available.
+"""
+
+from __future__ import annotations
+
+import logging
+import sqlite3
+
+from app.services.prediction.base import PredictionModel
+
+logger = logging.getLogger(__name__)
+
+_FALLBACK_MODEL_NAME = "poisson"
+
+
+class MLCalibratedModel(PredictionModel):
+    name = "ml_calibrated"
+    version = "1.0"
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
+        self._clf = None
+        self._model_meta: dict | None = None
+        self._load_model()
+
+    # ------------------------------------------------------------------
+    # Public API (PredictionModel interface)
+    # ------------------------------------------------------------------
+
+    def predict_match(
+        self,
+        home_team_id: str,
+        away_team_id: str,
+        context: dict | None = None,
+    ) -> dict:
+        ctx = context or {}
+        is_neutral: bool = ctx.get("is_neutral", True)
+
+        if self._clf is None:
+            return self._fallback(home_team_id, away_team_id, ctx)
+
+        from app.services.ml.feature_builder import build_match_features
+        features, missing = build_match_features(
+            home_team_id, away_team_id, self._conn, is_neutral
+        )
+
+        try:
+            import pandas as pd
+            from app.services.ml.feature_builder import FEATURE_NAMES as _FN
+            X = pd.DataFrame([features], columns=_FN)
+            proba = self._clf.predict_proba(X)[0]  # shape (3,)
+            # Ensure probabilities sum to 1.0 (floating-point safety)
+            total = float(sum(proba))
+            if total > 0:
+                proba = [float(p) / total for p in proba]
+            else:
+                proba = [1 / 3, 1 / 3, 1 / 3]
+        except Exception as exc:
+            logger.warning("MLCalibratedModel: inference error: %s", exc)
+            return self._fallback(home_team_id, away_team_id, ctx)
+
+        home_win, draw, away_win = proba[0], proba[1], proba[2]
+        algo = (self._model_meta or {}).get("algorithm", "ml")
+
+        return {
+            "home_win":             home_win,
+            "draw":                 draw,
+            "away_win":             away_win,
+            "expected_home_goals":  _rough_goals(home_win, draw, away_win, home=True),
+            "expected_away_goals":  _rough_goals(home_win, draw, away_win, home=False),
+            "most_likely_score":    _most_likely_score(home_win, draw, away_win),
+            "features_used":        [f for f in _feature_names() if f not in missing],
+            "features_missing":     missing,
+            "explanation": (
+                f"{algo.upper()}: P(home_win)={home_win:.2%} "
+                f"P(draw)={draw:.2%} P(away_win)={away_win:.2%}"
+            ),
+        }
+
+    # ------------------------------------------------------------------
+    # Internal
+    # ------------------------------------------------------------------
+
+    def _load_model(self) -> None:
+        """Load the best active ML model from the DB (if any)."""
+        try:
+            from app.db.repositories.ml import MLRepository
+            row = MLRepository(self._conn).get_best_model()
+        except Exception as exc:
+            logger.warning("MLCalibratedModel: could not query active model: %s", exc)
+            return
+
+        if row is None:
+            logger.info("MLCalibratedModel: no active model in DB — will fall back to Poisson")
+            return
+
+        model_path = row.get("model_path")
+        if not model_path:
+            logger.warning("MLCalibratedModel: active model has no model_path")
+            return
+
+        try:
+            import joblib
+            self._clf = joblib.load(model_path)
+            self._model_meta = dict(row)
+            logger.info(
+                "MLCalibratedModel: loaded %s from %s (brier=%.4f)",
+                row.get("algorithm"), model_path, row.get("brier_score") or 0,
+            )
+        except Exception as exc:
+            logger.warning("MLCalibratedModel: failed to load model file %s: %s", model_path, exc)
+
+    def _fallback(
+        self,
+        home_team_id: str,
+        away_team_id: str,
+        context: dict,
+    ) -> dict:
+        from app.services.prediction.poisson_model import PoissonModel
+        result = PoissonModel(self._conn).predict_match(home_team_id, away_team_id, context)
+        result["explanation"] = (
+            "[fallback-poisson] " + result.get("explanation", "")
+        )
+        return result
+
+
+# ---------------------------------------------------------------------------
+# Small helpers
+# ---------------------------------------------------------------------------
+
+def _feature_names() -> list[str]:
+    from app.services.ml.feature_builder import FEATURE_NAMES
+    return FEATURE_NAMES
+
+
+def _rough_goals(hw: float, draw: float, aw: float, home: bool) -> float:
+    """Rough expected goals from outcome probabilities."""
+    if home:
+        return round(1.5 * (hw + 0.5 * draw), 3)
+    return round(1.5 * (aw + 0.5 * draw), 3)
+
+
+def _most_likely_score(hw: float, draw: float, aw: float) -> str:
+    if hw >= draw and hw >= aw:
+        return "1-0"
+    if aw >= draw and aw >= hw:
+        return "0-1"
+    return "1-1"
