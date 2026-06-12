@@ -109,6 +109,64 @@ def run_simulation_task(
     return {"simulation_run_id": run_id, "progress": 1.0}
 
 
+def run_full_refresh_task(
+    job_id: str,
+    _conn: sqlite3.Connection | None = None,
+) -> dict:
+    """RQ task: run the full data refresh pipeline."""
+    from app.db.connection import db_transaction
+    from app.db.repositories.jobs import JobRepository
+    from app.services.jobs.pipeline import run_full_refresh
+
+    def _do_run(conn: sqlite3.Connection) -> dict:
+        JobRepository(conn).update_status(
+            job_id, "running",
+            started_at=datetime.now(timezone.utc).isoformat(),
+        )
+        conn.commit()
+        result = run_full_refresh(conn, job_id)
+        JobRepository(conn).update_status(
+            job_id, "completed",
+            finished_at=datetime.now(timezone.utc).isoformat(),
+        )
+        conn.commit()
+        return result
+
+    if _conn is not None:
+        return _do_run(_conn)
+    with db_transaction() as conn:
+        return _do_run(conn)
+
+
+def run_daily_update_task(
+    job_id: str,
+    _conn: sqlite3.Connection | None = None,
+) -> dict:
+    """RQ task: run the incremental daily update pipeline."""
+    from app.db.connection import db_transaction
+    from app.db.repositories.jobs import JobRepository
+    from app.services.jobs.pipeline import run_daily_update
+
+    def _do_run(conn: sqlite3.Connection) -> dict:
+        JobRepository(conn).update_status(
+            job_id, "running",
+            started_at=datetime.now(timezone.utc).isoformat(),
+        )
+        conn.commit()
+        result = run_daily_update(conn, job_id)
+        JobRepository(conn).update_status(
+            job_id, "completed",
+            finished_at=datetime.now(timezone.utc).isoformat(),
+        )
+        conn.commit()
+        return result
+
+    if _conn is not None:
+        return _do_run(_conn)
+    with db_transaction() as conn:
+        return _do_run(conn)
+
+
 def run_ml_training_task(
     job_id: str,
     algorithm: str | None = None,

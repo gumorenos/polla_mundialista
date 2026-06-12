@@ -112,6 +112,26 @@ class SimulationRepository:
         )
         return result_id
 
+    def create_snapshot(self, snap: dict[str, Any]) -> str:
+        """Persist a snapshot record linked to a simulation run."""
+        import uuid
+        snap_id = snap.get("id") or str(uuid.uuid4())
+        self._c.execute(
+            """
+            INSERT INTO snapshots
+                (id, label, description, trigger, simulation_run_id)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                snap_id,
+                snap.get("label"),
+                snap.get("description"),
+                snap.get("trigger"),
+                snap.get("simulation_run_id"),
+            ),
+        )
+        return snap_id
+
     def get_run_summary(self, simulation_run_id: str) -> dict[str, Any]:
         run = _row(
             self._c.execute(

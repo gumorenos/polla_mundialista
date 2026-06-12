@@ -1,0 +1,62 @@
+[
+  {
+    "bin_center": 0.05,
+    "predicted_freq": 0.0048525925834617244,
+    "observed_freq": 0.0,
+    "count": 2
+  },
+  {
+    "bin_center": 0.15,
+    "predicted_freq": 0.15,
+    "observed_freq": 0.0,
+    "count": 0
+  },
+  {
+    "bin_center": 0.25,
+    "predicted_freq": 0.25408591338675957,
+    "observed_freq": 0.0,
+    "count": 1
+  },
+  {
+    "bin_center": 0.35,
+    "predicted_freq": 0.31385698713909227,
+    "observed_freq": 0.5,
+    "count": 2
+  },
+  {
+    "bin_center": 0.45,
+    "predicted_freq": 0.44793247188751995,
+    "observed_freq": 0.5,
+    "count": 8
+  },
+  {
+    "bin_center": 0.55,
+    "predicted_freq": 0.5154231599298325,
+    "observed_freq": 0.5,
+    "count": 2
+  },
+  {
+    "bin_center": 0.65,
+    "predicted_freq": 0.65,
+    "observed_freq": 0.0,
+    "count": 0
+  },
+  {
+    "bin_center": 0.75,
+    "predicted_freq": 0.75,
+    "observed_freq": 0.0,
+    "count": 0
+  },
+  {
+    "bin_center": 0.85,
+    "predicted_freq": 0.85,
+    "observed_freq": 0.0,
+    "count": 0
+  },
+  {
+    "bin_center": 0.95,
+    "predicted_freq": 0.9695812544319824,
+    "observed_freq": 1.0,
+    "count": 9
+  }
+]

@@ -188,14 +188,16 @@ def _init_model(model_name: str, conn: sqlite3.Connection) -> object:
     """Instantiate the requested prediction model."""
     from app.services.prediction.baseline import BaselineModel
     from app.services.prediction.elo_model import EloModel
+    from app.services.prediction.ml_calibrated import MLCalibratedModel
     from app.services.prediction.poisson_context import PoissonContextModel
     from app.services.prediction.poisson_model import PoissonModel
 
     models = {
-        "baseline":       BaselineModel,
-        "elo":            EloModel,
-        "poisson":        PoissonModel,
+        "baseline":        BaselineModel,
+        "elo":             EloModel,
+        "poisson":         PoissonModel,
         "poisson_context": PoissonContextModel,
+        "ml_calibrated":   MLCalibratedModel,
     }
     cls = models.get(model_name)
     if cls is None:
