@@ -107,6 +107,10 @@ def get_simulation(run_id: str) -> dict[str, Any]:
 # GET /api/simulations/{run_id}/bracket
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# GET /api/simulations/{run_id}/bracket
+# ---------------------------------------------------------------------------
+
 @router.get("/{run_id}/bracket")
 def get_bracket(run_id: str) -> dict[str, Any]:
     """Return a single deterministic bracket simulation for visualisation."""

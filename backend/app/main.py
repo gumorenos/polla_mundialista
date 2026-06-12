@@ -8,9 +8,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes.admin import router as admin_router
 from app.api.routes.evaluations import router as evaluations_router
 from app.api.routes.health import router as health_router
+from app.api.routes.jobs import router as jobs_router
 from app.api.routes.ml import router as ml_router
 from app.api.routes.pipelines import router as pipelines_router
 from app.api.routes.simulations import router as simulations_router
+from app.api.routes.snapshots import router as snapshots_router
 from app.core.config import settings
 from app.core.logging import get_logger, setup_logging
 from app.db.migrations import run_migrations
@@ -46,6 +48,8 @@ app.add_middleware(
 app.include_router(health_router)
 app.include_router(admin_router)
 app.include_router(simulations_router)
+app.include_router(snapshots_router)
+app.include_router(jobs_router)
 app.include_router(ml_router)
 app.include_router(pipelines_router)
 app.include_router(evaluations_router)

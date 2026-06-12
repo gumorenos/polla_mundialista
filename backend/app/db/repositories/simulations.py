@@ -66,7 +66,7 @@ class SimulationRepository:
             self._c.execute(
                 """
                 SELECT * FROM simulation_runs
-                WHERE model_name = ? AND status = 'finished'
+                WHERE model_name = ? AND status = 'completed'
                 ORDER BY finished_at DESC
                 LIMIT 1
                 """,
@@ -131,6 +131,14 @@ class SimulationRepository:
             ),
         )
         return snap_id
+
+    def list_snapshots(self, limit: int = 50) -> list[dict[str, Any]]:
+        return [
+            dict(r)
+            for r in self._c.execute(
+                "SELECT * FROM snapshots ORDER BY created_at DESC LIMIT ?", (limit,)
+            ).fetchall()
+        ]
 
     def get_run_summary(self, simulation_run_id: str) -> dict[str, Any]:
         run = _row(

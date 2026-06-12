@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Core domain types — extended as features are implemented
+// Core domain types
 // ---------------------------------------------------------------------------
 
 export interface Team {
@@ -12,16 +12,76 @@ export interface Team {
   group_id: string | null
 }
 
-export interface Job {
+export interface JobRecord {
   id: string
-  queue: string
-  status: 'enqueued' | 'started' | 'finished' | 'failed'
-  func_name: string | null
+  rq_job_id: string | null
+  job_type: string
+  status: 'enqueued' | 'started' | 'completed' | 'failed'
+  progress: number
+  error_message: string | null
+  result_ref: string | null
   created_at: string
   started_at: string | null
-  ended_at: string | null
-  result: string | null
-  error: string | null
+  finished_at: string | null
+}
+
+export interface ModelMetrics {
+  model_name: string
+  brier_score: number | null
+  log_loss: number | null
+  rps: number | null
+  accuracy: number | null
+  total_predictions: number
+}
+
+export interface CalibrationBin {
+  bin_center: number
+  predicted_freq: number
+  observed_freq: number
+  count: number
+}
+
+export interface Snapshot {
+  id: string
+  label: string | null
+  description: string | null
+  trigger: string | null
+  simulation_run_id: string | null
+  created_at: string
+}
+
+export interface TeamResult {
+  id: string
+  simulation_run_id: string
+  team_id: number
+  team_name: string
+  win_group: number
+  qualify: number
+  reach_round_of_32: number
+  reach_round_of_16: number
+  reach_quarter_final: number
+  reach_semi_final: number
+  reach_final: number
+  win_tournament: number
+  expected_group_points: number
+}
+
+export interface SimulationRun {
+  id: string
+  model_name: string
+  status: string
+  iterations: number
+  seed: number
+  data_version_hash: string | null
+  created_at: string
+  started_at: string | null
+  finished_at: string | null
+  error_message: string | null
+}
+
+export interface SimulationSummary {
+  run: SimulationRun
+  team_results: TeamResult[]
 }
 
 export interface PredictionRun {
@@ -45,20 +105,13 @@ export interface MatchPrediction {
   expected_away_goals: number | null
 }
 
-export interface SimulationRun {
-  id: string
+export interface SimulationRequest {
   model_name: string
-  iterations: number
-  seed: number
-  created_at: string
+  iterations?: number
 }
 
-export interface SimulationTeamResult {
-  team_name: string
-  prob_group_stage: number
-  prob_round_of_16: number
-  prob_quarter_final: number
-  prob_semi_final: number
-  prob_final: number
-  prob_champion: number
+export interface EnqueueResponse {
+  job_id: string
+  rq_job_id: string
+  status: string
 }
