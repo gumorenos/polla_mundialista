@@ -99,6 +99,12 @@ class Settings(BaseSettings):
     ML_MODELS_PATH: str = "data/models"
 
     # ------------------------------------------------------------------
+    # Rate limiting (slowapi)
+    # ------------------------------------------------------------------
+    RATE_LIMIT_PUBLIC: str = "60/minute"
+    RATE_LIMIT_ADMIN: str = "10/minute"
+
+    # ------------------------------------------------------------------
     # Scheduler
     # ------------------------------------------------------------------
     SCHEDULER_ENABLED: bool = True

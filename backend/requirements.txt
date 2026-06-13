@@ -32,6 +32,10 @@ lightgbm>=4.3.0
 # Scheduling
 apscheduler>=3.10.0
 
+# Rate limiting
+slowapi>=0.1.9
+limits>=3.6.0
+
 # Utilities
 tenacity>=8.2.0
 python-dotenv>=1.0.0
