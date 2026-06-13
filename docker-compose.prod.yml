@@ -126,6 +126,8 @@ services:
     build:
       context: ./frontend
       dockerfile: ../docker/Dockerfile.frontend
+      args:
+        VITE_ADMIN_TOKEN: ${VITE_ADMIN_TOKEN:-}
     platform: linux/arm64
     restart: unless-stopped
     ports:

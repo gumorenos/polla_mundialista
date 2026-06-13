@@ -6,8 +6,9 @@ import logging
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Body, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 
+from app.api.dependencies import require_admin
 from app.db.connection import db_transaction
 from app.db.repositories.simulations import SimulationRepository
 
@@ -39,7 +40,7 @@ def list_snapshots(limit: int = Query(default=50, ge=1, le=200)) -> list[dict[st
 # POST /api/snapshots/{run_id}
 # ---------------------------------------------------------------------------
 
-@router.post("/{run_id}", status_code=status.HTTP_201_CREATED)
+@router.post("/{run_id}", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin)])
 def create_manual_snapshot(
     run_id: str,
     label: str = Body(..., embed=True),

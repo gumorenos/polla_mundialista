@@ -1,4 +1,4 @@
-"""Tests for Prompt 12 — admin token enforcement and rate limiting."""
+"""Tests for Prompt 12 + Fix-1 — admin token enforcement and rate limiting."""
 
 from __future__ import annotations
 
@@ -148,3 +148,79 @@ class TestRateLimiting:
         assert r1.status_code == 200
         assert r2.status_code == 200
         assert r3.status_code == 429
+
+
+# ---------------------------------------------------------------------------
+# TestFailClosedAuth  (Fix-1 additions)
+# ---------------------------------------------------------------------------
+
+class TestFailClosedAuth:
+    """Verify fail-closed behaviour: empty ADMIN_TOKEN → 503, not open."""
+
+    @pytest.fixture(autouse=True)
+    def _setup(self, monkeypatch, tmp_path):
+        monkeypatch.setattr("app.core.config.settings.SCHEDULER_ENABLED", False)
+        monkeypatch.setattr("app.core.config.settings.SQLITE_PATH", str(tmp_path / "fc.db"))
+
+        import sqlite3
+        from app.db.migrations import run_migrations
+        conn = sqlite3.connect(str(tmp_path / "fc.db"))
+        conn.row_factory = sqlite3.Row
+        run_migrations(conn)
+        conn.close()
+
+        from fastapi.testclient import TestClient
+        from app.main import app
+        self.client = TestClient(app, raise_server_exceptions=False)
+
+    def test_empty_admin_token_returns_503(self, monkeypatch):
+        """Fail-closed: empty ADMIN_TOKEN → 503 (not open access)."""
+        monkeypatch.setattr("app.core.config.settings.ADMIN_TOKEN", "")
+        r = self.client.post("/api/admin/ingest")
+        assert r.status_code == 503
+
+    def test_simulation_run_requires_auth(self, monkeypatch):
+        """POST /api/simulations/run must require admin token."""
+        monkeypatch.setattr("app.core.config.settings.ADMIN_TOKEN", "secret")
+        r = self.client.post("/api/simulations/run", json={"model_name": "baseline"})
+        assert r.status_code in (403, 503)
+
+    def test_snapshot_create_requires_auth(self, monkeypatch):
+        """POST /api/snapshots/{run_id} must require admin token."""
+        monkeypatch.setattr("app.core.config.settings.ADMIN_TOKEN", "secret")
+        r = self.client.post("/api/snapshots/fake-run-id", json={"label": "test"})
+        assert r.status_code in (403, 503)
+
+    def test_pipeline_endpoints_require_auth(self, monkeypatch):
+        """All pipeline endpoints must require admin token."""
+        monkeypatch.setattr("app.core.config.settings.ADMIN_TOKEN", "secret")
+        for path in [
+            "/api/pipelines/full-refresh",
+            "/api/pipelines/daily-update",
+            "/api/pipelines/run-all-models",
+        ]:
+            r = self.client.post(path)
+            assert r.status_code in (403, 503), f"{path} should require auth, got {r.status_code}"
+
+    def test_jobs_ping_does_not_require_auth(self):
+        """GET /api/jobs/ping is a public health check — no token needed."""
+        r = self.client.get("/api/jobs/ping")
+        # 200 (Redis available) or 503 (Redis not available in test env)
+        assert r.status_code in (200, 503)
+
+    def test_evaluations_summary_contract(self, monkeypatch):
+        """GET /api/evaluations/summary must return frontend-compatible field names."""
+        import sqlite3
+        from app.db.migrations import run_migrations
+        monkeypatch.setattr("app.core.config.settings.ADMIN_TOKEN", "")
+
+        r = self.client.get("/api/evaluations/summary")
+        assert r.status_code == 200
+        data = r.json()
+        if data:
+            row = data[0]
+            assert "brier_score" in row, "Frontend expects brier_score, not avg_brier"
+            assert "log_loss" in row
+            assert "rps" in row
+            assert "accuracy" in row
+            assert "total_predictions" in row

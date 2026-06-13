@@ -16,8 +16,8 @@ vi.mock('../api/hooks', () => ({
     data: {
       run: { id: 'r1', model_name: 'poisson', iterations: 30000, status: 'completed', created_at: '2026-01-01T00:00:00Z', finished_at: '2026-01-01T00:05:00Z' },
       team_results: [
-        { team_id: 1, team_name: 'Brasil', win_tournament: 0.18, reach_final: 0.32, reach_semi_final: 0.47, reach_quarter_final: 0.6, reach_round_of_16: 0.9, qualify: 0.95 },
-        { team_id: 2, team_name: 'Argentina', win_tournament: 0.16, reach_final: 0.28, reach_semi_final: 0.42, reach_quarter_final: 0.55, reach_round_of_16: 0.85, qualify: 0.93 },
+        { team_id: 'BRA', team_name: 'Brasil', win_tournament: 0.18, reach_final: 0.32, reach_semi_final: 0.47, reach_quarter_final: 0.6, reach_round_of_16: 0.9, qualify: 0.95 },
+        { team_id: 'ARG', team_name: 'Argentina', win_tournament: 0.16, reach_final: 0.28, reach_semi_final: 0.42, reach_quarter_final: 0.55, reach_round_of_16: 0.85, qualify: 0.93 },
       ],
     },
     isLoading: false,

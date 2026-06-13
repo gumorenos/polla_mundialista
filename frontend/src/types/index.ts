@@ -53,7 +53,7 @@ export interface Snapshot {
 export interface TeamResult {
   id: string
   simulation_run_id: string
-  team_id: number
+  team_id: string
   team_name: string
   win_group: number
   qualify: number

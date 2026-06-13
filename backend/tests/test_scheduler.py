@@ -168,11 +168,13 @@ class TestCheckAndSnapshot:
         conn = _make_db(db_path)
         _insert_team(conn, "BRA", "Brasil")
         _insert_team(conn, "FRA", "Francia")
-        soon = (datetime.now(timezone.utc) + timedelta(hours=10)).strftime("%Y-%m-%dT%H:%M:%S")
+        soon_dt = datetime.now(timezone.utc) + timedelta(hours=10)
+        soon = soon_dt.strftime("%Y-%m-%dT%H:%M:%S")
         _insert_fixture(conn, "f2", "BRA", "FRA", soon)
 
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        label = f"Pre-match: Brasil vs Francia ({today})"
+        # Use the fixture's date (not today) to match what check_and_snapshot computes
+        date_str = soon_dt.strftime("%Y-%m-%d")
+        label = f"Pre-match: Brasil vs Francia ({date_str})"
         run_id = str(uuid.uuid4())
         _insert_simulation_run(conn, run_id)
         _insert_snapshot(conn, str(uuid.uuid4()), run_id, "pre_match", label)
@@ -216,11 +218,13 @@ class TestSnapshotEndpoints:
     def _setup(self, monkeypatch, tmp_path):
         monkeypatch.setattr("app.core.config.settings.SCHEDULER_ENABLED", False)
         monkeypatch.setattr("app.core.config.settings.SQLITE_PATH", str(tmp_path / "snap.db"))
+        monkeypatch.setattr("app.core.config.settings.ADMIN_TOKEN", "snap-test-token")
         _setup_db(str(tmp_path / "snap.db"))
 
         from fastapi.testclient import TestClient
         from app.main import app
         self.client = TestClient(app)
+        self.admin_headers = {"X-Admin-Token": "snap-test-token"}
 
         # Seed data
         from app.db.connection import db_transaction
@@ -242,6 +246,7 @@ class TestSnapshotEndpoints:
         r = self.client.post(
             "/api/snapshots/run-001",
             json={"label": "Manual test", "description": "From test"},
+            headers=self.admin_headers,
         )
         assert r.status_code == 201
         body = r.json()
@@ -253,6 +258,7 @@ class TestSnapshotEndpoints:
         r = self.client.post(
             "/api/snapshots/does-not-exist",
             json={"label": "Should fail"},
+            headers=self.admin_headers,
         )
         assert r.status_code == 404
 

@@ -17,21 +17,25 @@ def test_health_returns_200():
     assert "service" in data
 
 
-def test_ping_enqueues_job():
-    mock_job = MagicMock()
-    mock_job.id = "test-job-id-abc123"
+def test_ping_checks_redis():
+    """GET /api/jobs/ping now verifies Redis is reachable without enqueueing jobs."""
+    mock_conn = MagicMock()
+    mock_conn.ping.return_value = True
 
-    with (
-        patch("app.api.routes.health.Redis"),
-        patch("app.api.routes.health.Queue") as MockQueue,
-    ):
-        mock_q = MagicMock()
-        mock_q.enqueue.return_value = mock_job
-        MockQueue.return_value = mock_q
-
+    # Redis is imported inside the function body, so patch at the source module
+    with patch("redis.Redis") as MockRedis:
+        MockRedis.from_url.return_value = mock_conn
         response = client.get("/api/jobs/ping")
 
     assert response.status_code == 200
     data = response.json()
-    assert data["job_id"] == "test-job-id-abc123"
-    assert data["status"] == "enqueued"
+    assert data["redis"] == "ok"
+
+
+def test_ping_returns_503_when_redis_unavailable():
+    """GET /api/jobs/ping returns 503 if Redis is unreachable."""
+    with patch("redis.Redis") as MockRedis:
+        MockRedis.from_url.side_effect = Exception("Connection refused")
+        response = TestClient(app, raise_server_exceptions=False).get("/api/jobs/ping")
+
+    assert response.status_code == 503

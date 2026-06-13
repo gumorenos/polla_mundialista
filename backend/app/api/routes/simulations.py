@@ -6,12 +6,14 @@ import logging
 from typing import Any
 
 import numpy as np
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from redis import Redis
 from rq import Queue
 
+from app.api.dependencies import require_admin
 from app.core.config import settings
+from app.core.limiter import limiter
 from app.db.connection import db_transaction
 from app.db.repositories.jobs import JobRepository
 from app.db.repositories.simulations import SimulationRepository
@@ -30,8 +32,9 @@ class RunRequest(BaseModel):
 # POST /api/simulations/run
 # ---------------------------------------------------------------------------
 
-@router.post("/run")
-def enqueue_simulation(body: RunRequest) -> dict[str, Any]:
+@router.post("/run", dependencies=[Depends(require_admin)])
+@limiter.limit(settings.RATE_LIMIT_ADMIN)
+def enqueue_simulation(request: Request, body: RunRequest) -> dict[str, Any]:
     """Enqueue a Monte Carlo simulation run in the 'long' RQ queue."""
     iterations = body.iterations or settings.MONTECARLO_ITERATIONS
     seed = settings.MONTECARLO_SEED

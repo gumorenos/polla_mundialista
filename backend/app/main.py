@@ -4,10 +4,9 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
-from slowapi.util import get_remote_address
 
 from app.api.routes.admin import router as admin_router
 from app.api.routes.evaluations import router as evaluations_router
@@ -19,6 +18,7 @@ from app.api.routes.pipelines import router as pipelines_router
 from app.api.routes.simulations import router as simulations_router
 from app.api.routes.snapshots import router as snapshots_router
 from app.core.config import settings
+from app.core.limiter import limiter
 from app.core.logging import get_logger, setup_logging
 from app.db.migrations import run_migrations
 
@@ -38,11 +38,6 @@ async def lifespan(app: FastAPI):
         stop_scheduler()
     logger.info("Oráculo Mundial 2026 — shutdown")
 
-
-limiter = Limiter(
-    key_func=get_remote_address,
-    default_limits=[settings.RATE_LIMIT_PUBLIC],
-)
 
 app = FastAPI(
     title="Oráculo Mundial 2026",

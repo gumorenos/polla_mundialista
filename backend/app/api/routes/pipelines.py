@@ -5,11 +5,13 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Request
 from redis import Redis
 from rq import Queue
 
+from app.api.dependencies import require_admin
 from app.core.config import settings
+from app.core.limiter import limiter
 from app.db.connection import db_transaction
 from app.db.repositories.jobs import JobRepository
 
@@ -17,36 +19,23 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/pipelines", tags=["pipelines"])
 
 _BASE_MODELS = ["baseline", "elo", "poisson", "poisson_context"]
-_ALL_MODELS  = _BASE_MODELS + ["ml_calibrated"]
-
-
-def _require_admin(x_admin_token: str | None) -> None:
-    if not settings.ADMIN_TOKEN:
-        return
-    if x_admin_token != settings.ADMIN_TOKEN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Invalid or missing X-Admin-Token",
-        )
+_ALL_MODELS = _BASE_MODELS + ["ml_calibrated"]
 
 
 # ---------------------------------------------------------------------------
 # POST /api/pipelines/full-refresh
 # ---------------------------------------------------------------------------
 
-@router.post("/full-refresh")
-def enqueue_full_refresh(
-    x_admin_token: str | None = Header(default=None),
-) -> dict[str, Any]:
+@router.post("/full-refresh", dependencies=[Depends(require_admin)])
+@limiter.limit(settings.RATE_LIMIT_ADMIN)
+def enqueue_full_refresh(request: Request) -> dict[str, Any]:
     """Enqueue the full data refresh pipeline in the 'long' RQ queue."""
     from app.workers.tasks import run_full_refresh_task
-
-    _require_admin(x_admin_token)
 
     with db_transaction() as conn:
         job_id = JobRepository(conn).create({
             "job_type": "full_refresh",
-            "status":   "enqueued",
+            "status": "enqueued",
             "progress": 0.0,
         })
         conn.commit()
@@ -70,19 +59,16 @@ def enqueue_full_refresh(
 # POST /api/pipelines/daily-update
 # ---------------------------------------------------------------------------
 
-@router.post("/daily-update")
-def enqueue_daily_update(
-    x_admin_token: str | None = Header(default=None),
-) -> dict[str, Any]:
+@router.post("/daily-update", dependencies=[Depends(require_admin)])
+@limiter.limit(settings.RATE_LIMIT_ADMIN)
+def enqueue_daily_update(request: Request) -> dict[str, Any]:
     """Enqueue the incremental daily update in the 'default' RQ queue."""
     from app.workers.tasks import run_daily_update_task
-
-    _require_admin(x_admin_token)
 
     with db_transaction() as conn:
         job_id = JobRepository(conn).create({
             "job_type": "daily_update",
-            "status":   "enqueued",
+            "status": "enqueued",
             "progress": 0.0,
         })
         conn.commit()
@@ -106,36 +92,22 @@ def enqueue_daily_update(
 # POST /api/pipelines/run-all-models
 # ---------------------------------------------------------------------------
 
-@router.post("/run-all-models")
-def enqueue_all_models(
-    x_admin_token: str | None = Header(default=None),
-) -> list[dict[str, Any]]:
-    """Enqueue one Monte Carlo simulation per model.  Returns a list of job records."""
+@router.post("/run-all-models", dependencies=[Depends(require_admin)])
+@limiter.limit(settings.RATE_LIMIT_ADMIN)
+def enqueue_all_models(request: Request) -> dict[str, Any]:
+    """Enqueue one Monte Carlo simulation per model. Returns list of job records."""
     from app.workers.tasks import run_simulation_task
-
-    _require_admin(x_admin_token)
 
     redis_conn = Redis.from_url(settings.REDIS_URL)
     q = Queue("long", connection=redis_conn)
 
     jobs: list[dict[str, Any]] = []
 
-    with db_transaction() as conn:
-        job_repo = JobRepository(conn)
-        for model_name in _ALL_MODELS:
-            job_id = job_repo.create({
-                "job_type": "simulation",
-                "status":   "enqueued",
-                "progress": 0.0,
-            })
-        conn.commit()
-
-    # Re-open so we can enqueue and update result_ref
     for model_name in _ALL_MODELS:
         with db_transaction() as conn:
             job_id = JobRepository(conn).create({
                 "job_type": "simulation",
-                "status":   "enqueued",
+                "status": "enqueued",
                 "progress": 0.0,
             })
             conn.commit()
@@ -154,11 +126,11 @@ def enqueue_all_models(
             conn.commit()
 
         jobs.append({
-            "job_id":     job_id,
-            "rq_job_id":  rq_job.id,
+            "job_id": job_id,
+            "rq_job_id": rq_job.id,
             "model_name": model_name,
-            "status":     "enqueued",
+            "status": "enqueued",
         })
 
     logger.info("run-all-models: %d simulations enqueued", len(jobs))
-    return jobs
+    return {"jobs": jobs, "total": len(jobs)}

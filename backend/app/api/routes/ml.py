@@ -5,28 +5,20 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Header, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from redis import Redis
 from rq import Queue
 
+from app.api.dependencies import require_admin
 from app.core.config import settings
+from app.core.limiter import limiter
 from app.db.connection import db_transaction
 from app.db.repositories.jobs import JobRepository
 from app.db.repositories.ml import MLRepository
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/ml", tags=["ml"])
-
-
-def _require_admin(x_admin_token: str | None) -> None:
-    if not settings.ADMIN_TOKEN:
-        return
-    if x_admin_token != settings.ADMIN_TOKEN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Invalid or missing X-Admin-Token",
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -43,21 +35,17 @@ class TrainRequest(BaseModel):
 # POST /api/ml/train  — enqueue ML training job (admin only)
 # ---------------------------------------------------------------------------
 
-@router.post("/train")
-def enqueue_ml_training(
-    body: TrainRequest,
-    x_admin_token: str | None = Header(default=None),
-) -> dict[str, Any]:
+@router.post("/train", dependencies=[Depends(require_admin)])
+@limiter.limit(settings.RATE_LIMIT_ADMIN)
+def enqueue_ml_training(request: Request, body: TrainRequest) -> dict[str, Any]:
     """Enqueue ML model training in the 'long' RQ queue."""
     from app.workers.tasks import run_ml_training_task
-
-    _require_admin(x_admin_token)
 
     with db_transaction() as conn:
         job_repo = JobRepository(conn)
         job_id = job_repo.create({
             "job_type": "ml_training",
-            "status":   "enqueued",
+            "status": "enqueued",
             "progress": 0.0,
         })
         conn.commit()
@@ -82,10 +70,10 @@ def enqueue_ml_training(
         rq_job.id, job_id, body.algorithm,
     )
     return {
-        "job_id":     job_id,
-        "rq_job_id":  rq_job.id,
-        "algorithm":  body.algorithm,
-        "status":     "enqueued",
+        "job_id": job_id,
+        "rq_job_id": rq_job.id,
+        "algorithm": body.algorithm,
+        "status": "enqueued",
     }
 
 

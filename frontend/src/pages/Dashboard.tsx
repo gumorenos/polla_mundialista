@@ -4,6 +4,7 @@ import {
   useTriggerDailyUpdate,
   useTriggerFullRefresh,
 } from '../api/hooks'
+import { hasAdminToken } from '../api/client'
 import type { ModelMetrics, TeamResult } from '../types'
 
 function MetricCard({ label, value }: { label: string; value: string | number }) {
@@ -26,13 +27,15 @@ export default function Dashboard() {
   const fullRefresh = useTriggerFullRefresh()
   const dailyUpdate = useTriggerDailyUpdate()
 
-  const bestModel: ModelMetrics | undefined = metrics?.sort(
+  const bestModel: ModelMetrics | undefined = [...(metrics ?? [])].sort(
     (a, b) => (a.brier_score ?? 1) - (b.brier_score ?? 1),
   )[0]
 
-  const top5: TeamResult[] = (sim?.team_results ?? [])
+  const top5: TeamResult[] = [...(sim?.team_results ?? [])]
     .sort((a, b) => b.win_tournament - a.win_tournament)
     .slice(0, 5)
+
+  const noToken = !hasAdminToken
 
   return (
     <div className="p-8 space-y-8">
@@ -41,21 +44,30 @@ export default function Dashboard() {
           <h2 className="text-2xl font-bold text-white">Oráculo Mundial 2026</h2>
           <p className="mt-1 text-sm text-gray-400">Vista general de predicciones</p>
         </div>
-        <div className="flex gap-3">
-          <button
-            onClick={() => dailyUpdate.mutate()}
-            disabled={dailyUpdate.isPending}
-            className="rounded bg-gray-700 px-4 py-2 text-sm text-gray-200 hover:bg-gray-600 disabled:opacity-50"
-          >
-            {dailyUpdate.isPending ? 'Encolando…' : 'Daily Update'}
-          </button>
-          <button
-            onClick={() => fullRefresh.mutate()}
-            disabled={fullRefresh.isPending}
-            className="rounded bg-blue-700 px-4 py-2 text-sm text-white hover:bg-blue-600 disabled:opacity-50"
-          >
-            {fullRefresh.isPending ? 'Encolando…' : 'Full Refresh'}
-          </button>
+        <div className="flex flex-col items-end gap-2">
+          {noToken && (
+            <p className="text-xs text-yellow-500">
+              VITE_ADMIN_TOKEN no configurado — acciones admin deshabilitadas
+            </p>
+          )}
+          <div className="flex gap-3">
+            <button
+              onClick={() => dailyUpdate.mutate()}
+              disabled={dailyUpdate.isPending || noToken}
+              title={noToken ? 'Admin token no configurado' : undefined}
+              className="rounded bg-gray-700 px-4 py-2 text-sm text-gray-200 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {dailyUpdate.isPending ? 'Encolando…' : 'Daily Update'}
+            </button>
+            <button
+              onClick={() => fullRefresh.mutate()}
+              disabled={fullRefresh.isPending || noToken}
+              title={noToken ? 'Admin token no configurado' : undefined}
+              className="rounded bg-blue-700 px-4 py-2 text-sm text-white hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {fullRefresh.isPending ? 'Encolando…' : 'Full Refresh'}
+            </button>
+          </div>
         </div>
       </div>
 

@@ -169,6 +169,25 @@ bash backend/scripts/backup_sqlite.sh
 
 ---
 
+## 7. Fixes post-auditoría (Fix-1)
+
+Aplicados el 2026-06-13:
+
+| # | Problema | Solución |
+|---|---|---|
+| Fix-1.1 | `ADMIN_TOKEN` fail-open (acceso sin token cuando vacío) | `require_admin` dependency fail-closed: 503 si no configurado, 403 si incorrecto. Validador en config rechaza token vacío en `ENVIRONMENT=production`. |
+| Fix-1.2 | `POST /api/simulations/run`, `POST /api/snapshots/{run_id}` públicos | Ambos endpoints añadidos a `Depends(require_admin)` + rate limit admin |
+| Fix-1.3 | `GET /api/jobs/ping` encolaba jobs reales | Reemplazado por health check puro: solo llama `Redis.ping()`, retorna `{"redis":"ok"}` o 503 |
+| Fix-1.4 | Frontend no enviaba `X-Admin-Token` en mutaciones admin | `client.ts` lee `VITE_ADMIN_TOKEN` (build-time), botones deshabilitados si no configurado |
+| Fix-1.5 | Contrato roto backend→frontend para métricas (`avg_brier` vs `brier_score`) | `GET /api/evaluations/summary` normaliza a `brier_score`, `log_loss`, `rps`, `accuracy`, `total_predictions` |
+| Fix-1.6 | Rate limit admin configurado pero no aplicado | `@limiter.limit(settings.RATE_LIMIT_ADMIN)` en todos los endpoints admin/pipelines/ml/simulations |
+| Fix-1.7 | `team_id: number` en TypeScript, backend usa strings | `TeamResult.team_id` corregido a `string` |
+| Fix-1.8 | `run-all-models` creaba doble de jobs (dos loops) | Colapsado a un único loop que crea job + encola atomicamente |
+
+Tests añadidos/actualizados: `test_security.py` (14 tests), `test_health.py` (reemplazado ping test), `test_scheduler.py` (auth en snapshots), `test_ingestion.py` (token en admin), `test_health.py` (test_existing_snapshot timing fix).
+
+---
+
 ## 6. Próximos pasos
 
 ### Alta prioridad

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any, List, Tuple, Type
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, EnvSettingsSource, SettingsConfigDict
 from pydantic_settings.main import PydanticBaseSettingsSource
 
@@ -155,8 +155,19 @@ class Settings(BaseSettings):
     DEBUG: bool = False
 
     # ------------------------------------------------------------------
-    # Validators: accept JSON array or comma-separated string from env
+    # Validators
     # ------------------------------------------------------------------
+
+    @model_validator(mode="after")
+    def validate_production_secrets(self) -> "Settings":
+        _unsafe = {"", "change_me_in_production"}
+        if self.ENVIRONMENT == "production" and self.ADMIN_TOKEN in _unsafe:
+            raise ValueError(
+                "ADMIN_TOKEN must be set to a non-placeholder value in production. "
+                "Set ENVIRONMENT=development to bypass this check."
+            )
+        return self
+
     @field_validator(
         "CORS_ORIGINS",
         "FUENTES_CONFIABLES",

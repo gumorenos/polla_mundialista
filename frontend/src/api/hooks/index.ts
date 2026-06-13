@@ -77,7 +77,8 @@ export function useTeamStats(model = 'poisson') {
 export function useRunSimulation() {
   const qc = useQueryClient()
   return useMutation<EnqueueResponse, Error, SimulationRequest>({
-    mutationFn: (body) => api.post<EnqueueResponse>('/api/simulations/run', body),
+    mutationFn: (body) =>
+      api.post<EnqueueResponse>('/api/simulations/run', body, true),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['jobs'] }),
   })
 }
@@ -85,7 +86,8 @@ export function useRunSimulation() {
 export function useTriggerFullRefresh() {
   const qc = useQueryClient()
   return useMutation<EnqueueResponse, Error, void>({
-    mutationFn: () => api.post<EnqueueResponse>('/api/pipelines/full-refresh', {}),
+    mutationFn: () =>
+      api.post<EnqueueResponse>('/api/pipelines/full-refresh', {}, true),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['jobs'] }),
   })
 }
@@ -93,7 +95,26 @@ export function useTriggerFullRefresh() {
 export function useTriggerDailyUpdate() {
   const qc = useQueryClient()
   return useMutation<EnqueueResponse, Error, void>({
-    mutationFn: () => api.post<EnqueueResponse>('/api/pipelines/daily-update', {}),
+    mutationFn: () =>
+      api.post<EnqueueResponse>('/api/pipelines/daily-update', {}, true),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['jobs'] }),
+  })
+}
+
+export function useCreateSnapshot(runId: string) {
+  const qc = useQueryClient()
+  return useMutation<EnqueueResponse, Error, { label: string; description?: string }>({
+    mutationFn: (body) =>
+      api.post<EnqueueResponse>(`/api/snapshots/${runId}`, body, true),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['snapshots'] }),
+  })
+}
+
+export function useTrainML() {
+  const qc = useQueryClient()
+  return useMutation<EnqueueResponse, Error, { algorithm?: string; train_start_year?: number; validation_split?: number }>({
+    mutationFn: (body) =>
+      api.post<EnqueueResponse>('/api/ml/train', body, true),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['jobs'] }),
   })
 }

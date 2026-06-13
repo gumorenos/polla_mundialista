@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
-from redis import Redis
-from rq import Queue
+from fastapi import APIRouter, HTTPException, status
 
 from app.core.config import settings
-from app.workers.tasks import ping_task
 
 router = APIRouter(tags=["health"])
 
@@ -16,9 +13,15 @@ def health_check():
 
 
 @router.get("/api/jobs/ping")
-def enqueue_ping():
-    """Enqueue a ping_task job and return its ID."""
-    redis_conn = Redis.from_url(settings.REDIS_URL)
-    q = Queue("default", connection=redis_conn)
-    job = q.enqueue(ping_task, job_timeout=settings.RQ_DEFAULT_TIMEOUT)
-    return {"job_id": job.id, "status": "enqueued"}
+def ping_redis():
+    """Health check for Redis — does NOT enqueue jobs."""
+    try:
+        from redis import Redis
+        conn = Redis.from_url(settings.REDIS_URL)
+        conn.ping()
+        return {"redis": "ok"}
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Redis unavailable: {exc}",
+        ) from exc

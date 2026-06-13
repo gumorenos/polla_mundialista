@@ -225,23 +225,29 @@ class TestAdminEndpoint:
     def test_ingest_enqueues_job(self):
         from fastapi.testclient import TestClient
         from app.main import app
+        import app.core.config as cfg
 
         mock_job = MagicMock()
         mock_job.id = "ingest-job-xyz"
 
-        with (
-            patch("app.api.routes.admin.Redis"),
-            patch("app.api.routes.admin.Queue") as MockQ,
-        ):
-            mock_q = MagicMock()
-            mock_q.enqueue.return_value = mock_job
-            MockQ.return_value = mock_q
+        original_token = cfg.settings.ADMIN_TOKEN
+        try:
+            cfg.settings.ADMIN_TOKEN = "test-token"
+            with (
+                patch("app.api.routes.admin.Redis"),
+                patch("app.api.routes.admin.Queue") as MockQ,
+            ):
+                mock_q = MagicMock()
+                mock_q.enqueue.return_value = mock_job
+                MockQ.return_value = mock_q
 
-            client = TestClient(app)
-            response = client.post(
-                "/api/admin/ingest",
-                headers={"X-Admin-Token": ""},
-            )
+                client = TestClient(app)
+                response = client.post(
+                    "/api/admin/ingest",
+                    headers={"X-Admin-Token": "test-token"},
+                )
+        finally:
+            cfg.settings.ADMIN_TOKEN = original_token
 
         assert response.status_code == 200
         data = response.json()

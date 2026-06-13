@@ -23,7 +23,7 @@ router = APIRouter(prefix="/api/evaluations", tags=["evaluations"])
 
 @router.get("/summary")
 def get_summary() -> list[dict[str, Any]]:
-    """Return aggregate metrics per model (latest evaluation for each model)."""
+    """Return aggregate metrics per model normalised to the frontend contract."""
     with db_transaction() as conn:
         repo = EvaluationRepository(conn)
         model_names = [
@@ -32,7 +32,21 @@ def get_summary() -> list[dict[str, Any]]:
                 "SELECT DISTINCT model_name FROM model_evaluations ORDER BY model_name"
             ).fetchall()
         ]
-        return [repo.compute_aggregate_metrics(m) for m in model_names if m]
+        raw = [repo.compute_aggregate_metrics(m) for m in model_names if m]
+
+    # Normalise avg_* keys → frontend contract (brier_score, log_loss, rps, accuracy)
+    return [
+        {
+            "model_name": row.get("model_name"),
+            "brier_score": row.get("avg_brier"),
+            "log_loss": row.get("avg_log_loss"),
+            "rps": row.get("avg_rps"),
+            "accuracy": row.get("avg_accuracy"),
+            "total_predictions": row.get("n_evaluations", 0),
+        }
+        for row in raw
+        if row
+    ]
 
 
 # ---------------------------------------------------------------------------
