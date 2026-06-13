@@ -132,6 +132,13 @@ class SimulationRepository:
         )
         return snap_id
 
+    def get_snapshot_by_id(self, snapshot_id: str) -> dict[str, Any] | None:
+        return _row(
+            self._c.execute(
+                "SELECT * FROM snapshots WHERE id = ?", (snapshot_id,)
+            ).fetchone()
+        )
+
     def list_snapshots(self, limit: int = 50) -> list[dict[str, Any]]:
         return [
             dict(r)

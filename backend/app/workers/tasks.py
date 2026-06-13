@@ -220,6 +220,39 @@ def run_ml_training_task(
         return _do_run(conn)
 
 
+def run_pre_match_snapshot_task(
+    label: str,
+    model_name: str = "poisson",
+) -> dict:
+    """RQ task: run simulation and save a pre-match snapshot.
+
+    Called automatically by the scheduler 24h before each fixture.
+    """
+    from app.core.config import settings
+    from app.db.connection import db_transaction
+    from app.db.repositories.simulations import SimulationRepository
+    from app.services.simulation.monte_carlo import run_monte_carlo
+
+    with db_transaction() as conn:
+        run_id = run_monte_carlo(
+            model_name=model_name,
+            conn=conn,
+            iterations=settings.MONTECARLO_ITERATIONS,
+            seed=settings.MONTECARLO_SEED,
+        )
+        SimulationRepository(conn).create_snapshot(
+            {
+                "label": label,
+                "trigger": "pre_match",
+                "simulation_run_id": run_id,
+            }
+        )
+        conn.commit()
+
+    logger.info("Pre-match snapshot task completed: label=%s run_id=%s", label, run_id)
+    return {"run_id": run_id, "label": label}
+
+
 def run_news_task(
     job_id: str,
     _conn: sqlite3.Connection | None = None,
