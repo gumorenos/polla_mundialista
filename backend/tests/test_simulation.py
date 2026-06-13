@@ -228,3 +228,38 @@ class TestProgress:
         assert job_row["progress"] == pytest.approx(1.0)
         assert job_row["status"] == "completed"
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# TestLoadGroupsFromDB
+# ---------------------------------------------------------------------------
+
+class TestLoadGroupsFromDB:
+    def test_groups_loaded_from_db_not_hardcoded(self):
+        """When group_teams has data, _load_groups must return DB rows, not fallback."""
+        from app.services.simulation.monte_carlo import _load_groups
+
+        conn = _make_db()
+        conn.execute("INSERT INTO groups (id, tournament) VALUES ('G_TEST', 'WC2026')")
+        conn.execute("INSERT INTO teams (id, name) VALUES ('TST1', 'Test Team One')")
+        conn.execute(
+            "INSERT INTO group_teams (group_id, team_id, position) VALUES ('G_TEST', 'TST1', 1)"
+        )
+        conn.commit()
+
+        groups = _load_groups(conn)
+
+        assert "G_TEST" in groups, "DB groups should override GROUPS_2026 fallback"
+        assert "TST1" in groups["G_TEST"]
+        conn.close()
+
+    def test_empty_group_teams_uses_fallback(self):
+        """Empty group_teams table → GROUPS_2026 fallback is used."""
+        from app.services.simulation.monte_carlo import _load_groups
+        from app.services.simulation.constants import GROUPS_2026
+
+        conn = _make_db()
+        groups = _load_groups(conn)
+
+        assert groups == {k: list(v) for k, v in GROUPS_2026.items()}
+        conn.close()

@@ -169,6 +169,24 @@ bash backend/scripts/backup_sqlite.sh
 
 ---
 
+## 8. Fixes post-auditoría (Fix-2)
+
+Aplicados el 2026-06-13:
+
+| # | Problema | Solución |
+|---|---|---|
+| Fix-2.1 | `group_teams` sin columna `position` → simulador ignoraba orden de grupos CSV | Migración `_m003_group_teams_position` añade `position INTEGER DEFAULT 0`; csv_loader incluye `position`; `_load_groups` solo usa fallback si tabla vacía (no silenciosamente en error) |
+| Fix-2.2 | `run-all-models` creaba doble de jobs (dos loops) | Ya resuelto en Fix-1.8 |
+| Fix-2.3 | Frontend Docker usaba nginx sin security headers | `frontend/nginx.conf` actualizado con security headers + gzip + `server_tokens off`; `docker/nginx.prod.conf` eliminado (duplicado) |
+| Fix-2.4 | Scraper de noticias sin retry exponencial (DT-011) | `_fetch_url()` con `@retry` de tenacity: 3 intentos, backoff 2–30s, solo en `TimeoutException` / `ConnectError` |
+| Fix-2.5 | Modelos ML sobreescriben sin historial (DT-012) | Filename con timestamp: `ml_{algo}_{ts}_{run_id[:8]}.joblib`; limpieza automática de más de `ML_MODELS_KEEP=5` archivos; nuevo endpoint `GET /api/ml/history` |
+| Fix-2.6 | Dashboard mutaba array de React Query | Ya resuelto en Fix-1 (spread antes de sort) |
+| Fix-2.7 | `TeamResult.team_id: number` debería ser `string` | Ya resuelto en Fix-1 |
+
+Tests añadidos: `test_simulation.py::TestLoadGroupsFromDB` (2 tests: DB override + empty fallback). Total backend: 200 tests.
+
+---
+
 ## 7. Fixes post-auditoría (Fix-1)
 
 Aplicados el 2026-06-13:

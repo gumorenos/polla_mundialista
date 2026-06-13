@@ -126,6 +126,7 @@ class Settings(BaseSettings):
     ML_VALIDATION_SPLIT: float = 0.2
     ML_PREFERRED_ALGORITHM: str = "lightgbm"
     ML_MODELS_PATH: str = "data/models"
+    ML_MODELS_KEEP: int = 5
 
     # ------------------------------------------------------------------
     # Rate limiting (slowapi)

@@ -206,7 +206,7 @@ def _init_model(model_name: str, conn: sqlite3.Connection) -> object:
 
 
 def _load_groups(conn: sqlite3.Connection) -> dict[str, list[str]]:
-    """Load group composition from DB; fall back to hard-coded constants."""
+    """Load group composition from DB; fall back to hard-coded constants only if empty."""
     try:
         rows = conn.execute(
             """
@@ -216,17 +216,19 @@ def _load_groups(conn: sqlite3.Connection) -> dict[str, list[str]]:
             ORDER BY g.id, gt.position
             """
         ).fetchall()
-    except Exception:
-        rows = []
+    except Exception as exc:
+        logger.error("_load_groups DB query failed: %s — falling back to GROUPS_2026", exc)
+        return {k: list(v) for k, v in GROUPS_2026.items()}
 
     if not rows:
-        logger.warning("No groups in DB — using hard-coded GROUPS_2026 constants")
+        logger.warning("group_teams table is empty — using hard-coded GROUPS_2026 fallback")
         return {k: list(v) for k, v in GROUPS_2026.items()}
 
     groups: dict[str, list[str]] = {}
     for row in rows:
         gid = row["group_id"]
         groups.setdefault(gid, []).append(row["team_id"])
+    logger.info("_load_groups: loaded %d groups from DB", len(groups))
     return groups
 
 

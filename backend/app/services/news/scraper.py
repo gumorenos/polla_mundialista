@@ -14,12 +14,13 @@ from urllib.parse import urlparse
 
 import httpx
 from bs4 import BeautifulSoup
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-_HTTP_TIMEOUT = 10  # seconds — configurable constant
+_HTTP_TIMEOUT = 10  # seconds
 _AGENT = "Mozilla/5.0 (compatible; OraculoMundial/1.0)"
 _TIER_HIGH = frozenset({"theathletic.com", "bbc.com", "bbc.co.uk"})
 
@@ -55,9 +56,7 @@ def extract_article_text(url: str) -> str:
     Falls back to empty string on any error.
     """
     try:
-        with httpx.Client(timeout=_HTTP_TIMEOUT, follow_redirects=True) as client:
-            resp = client.get(url, headers={"User-Agent": _AGENT})
-            resp.raise_for_status()
+        resp = _fetch_url(url)
         soup = BeautifulSoup(resp.text, "lxml")
         for tag in soup(["script", "style", "nav", "footer", "header", "aside"]):
             tag.decompose()
@@ -89,6 +88,20 @@ def source_credibility(domain: str) -> float:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+@retry(
+    retry=retry_if_exception_type((httpx.TimeoutException, httpx.ConnectError)),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=30),
+    reraise=True,
+)
+def _fetch_url(url: str) -> httpx.Response:
+    """HTTP GET with exponential retry on timeout/connection errors."""
+    with httpx.Client(timeout=_HTTP_TIMEOUT, follow_redirects=True) as client:
+        resp = client.get(url, headers={"User-Agent": _AGENT})
+        resp.raise_for_status()
+        return resp
+
+
 def _fetch_google_news_rss(
     player: str, country: str, days_back: int
 ) -> list[dict]:
@@ -98,9 +111,11 @@ def _fetch_google_news_rss(
         f"?q={query}&hl=en&gl=US&ceid=US:en"
     )
 
-    with httpx.Client(timeout=_HTTP_TIMEOUT, follow_redirects=True) as client:
-        resp = client.get(url, headers={"User-Agent": _AGENT})
-        resp.raise_for_status()
+    try:
+        resp = _fetch_url(url)
+    except Exception as exc:
+        logger.warning("_fetch_google_news_rss: all retries failed for %s: %s", url, exc)
+        return []
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=days_back)
     root   = ET.fromstring(resp.text)

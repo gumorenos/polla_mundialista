@@ -134,8 +134,8 @@ def load_groups_from_csv(
                     )
                     seen_groups.add(gid)
                 c.execute(
-                    "INSERT OR IGNORE INTO group_teams (group_id, team_id) VALUES (?,?)",
-                    (gid, tid),
+                    "INSERT OR IGNORE INTO group_teams (group_id, team_id, position) VALUES (?,?,?)",
+                    (gid, tid, int(row.get("position", 0))),
                 )
                 count += 1
             except Exception as exc:

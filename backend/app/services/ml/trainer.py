@@ -231,11 +231,28 @@ def _save_model(model, algo: str, run_id: str) -> str:
     models_dir = Path(settings.ML_MODELS_PATH)
     models_dir.mkdir(parents=True, exist_ok=True)
 
-    filename = f"ml_{algo}_{run_id[:8]}.joblib"
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    filename = f"ml_{algo}_{timestamp}_{run_id[:8]}.joblib"
     path = str(models_dir / filename)
     joblib.dump(model, path)
     logger.info("Model saved to %s", path)
+
+    _cleanup_old_models(models_dir, algo)
     return path
+
+
+def _cleanup_old_models(models_dir: Path, algo: str) -> None:
+    """Keep only the last ML_MODELS_KEEP model files per algorithm."""
+    keep = max(1, settings.ML_MODELS_KEEP)
+    pattern = f"ml_{algo}_*.joblib"
+    existing = sorted(models_dir.glob(pattern))
+    if len(existing) > keep:
+        for old in existing[: len(existing) - keep]:
+            try:
+                old.unlink()
+                logger.info("Removed old model: %s", old)
+            except Exception as exc:
+                logger.warning("Could not remove old model %s: %s", old, exc)
 
 
 def _get_feature_importances(model, algo: str) -> list[float] | None:

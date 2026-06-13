@@ -374,11 +374,20 @@ def _m002_jobs_extend_schema(conn: sqlite3.Connection) -> None:
         _add_col(conn, "jobs", col, defn)
 
 
+def _m003_group_teams_position(conn: sqlite3.Connection) -> None:
+    """Add position column to group_teams so ORDER BY works correctly."""
+    _add_col(conn, "group_teams", "position", "INTEGER DEFAULT 0")
+
+
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
 
-_MIGRATIONS = [_m001_create_all_tables, _m002_jobs_extend_schema]
+_MIGRATIONS = [
+    _m001_create_all_tables,
+    _m002_jobs_extend_schema,
+    _m003_group_teams_position,
+]
 
 
 def run_migrations(conn: sqlite3.Connection | None = None) -> None:

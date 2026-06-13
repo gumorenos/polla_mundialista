@@ -106,6 +106,29 @@ def list_models() -> list[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
+# GET /api/ml/history  — last N trained models with metrics
+# ---------------------------------------------------------------------------
+
+@router.get("/history")
+def ml_history(limit: int = 10) -> list[dict[str, Any]]:
+    """Return the last *limit* trained ML models ordered by recency."""
+    with db_transaction() as conn:
+        rows = conn.execute(
+            """
+            SELECT m.id, m.algorithm, m.brier_score, m.log_loss, m.accuracy,
+                   m.is_active, m.model_path, m.created_at,
+                   r.train_start_year, r.status AS run_status
+              FROM ml_models m
+         LEFT JOIN ml_training_runs r ON m.training_run_id = r.id
+             ORDER BY m.created_at DESC
+             LIMIT ?
+            """,
+            (max(1, min(limit, 50)),),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
 # GET /api/ml/predict/{home_team_id}/{away_team_id}  — single-match prediction
 # ---------------------------------------------------------------------------
 
