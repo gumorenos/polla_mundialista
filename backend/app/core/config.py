@@ -1,10 +1,24 @@
 from __future__ import annotations
 
 import json
-from typing import Any, List
+from typing import Any, List, Tuple, Type
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, EnvSettingsSource, SettingsConfigDict
+from pydantic_settings.main import PydanticBaseSettingsSource
+
+
+class _LenientEnvSource(EnvSettingsSource):
+    """pydantic-settings ≥2.7 raises SettingsError when json.loads() fails on
+    List[str] fields whose env value is a comma-separated string (not JSON).
+    This subclass returns the raw string on decode failure so that the
+    field_validator can handle it."""
+
+    def decode_complex_value(self, field_name: str, field: Any, value: Any) -> Any:
+        try:
+            return super().decode_complex_value(field_name, field, value)
+        except Exception:
+            return value
 
 
 class Settings(BaseSettings):
@@ -14,6 +28,21 @@ class Settings(BaseSettings):
         case_sensitive=True,
         extra="ignore",
     )
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: Type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        **kwargs: Any,
+    ) -> Tuple[PydanticBaseSettingsSource, ...]:
+        return (
+            init_settings,
+            _LenientEnvSource(settings_cls),
+            dotenv_settings,
+        )
 
     # ------------------------------------------------------------------
     # Database
