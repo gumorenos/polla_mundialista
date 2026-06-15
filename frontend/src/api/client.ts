@@ -42,6 +42,8 @@ export const api = {
   get: <T>(path: string) => apiFetch<T>(path),
   post: <T>(path: string, body: unknown, requireAdmin = false) =>
     apiFetch<T>(path, { method: 'POST', body: JSON.stringify(body) }, requireAdmin),
+  delete: <T>(path: string, requireAdmin = false) =>
+    apiFetch<T>(path, { method: 'DELETE' }, requireAdmin),
 }
 
 export { ApiError }

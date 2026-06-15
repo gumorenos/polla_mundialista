@@ -1,12 +1,16 @@
-import { useJobs } from '../api/hooks'
+import { useJobs, useCancelJob } from '../api/hooks'
+import { hasAdminToken } from '../api/client'
 import type { JobRecord } from '../types'
+
+const CANCELLABLE: JobRecord['status'][] = ['enqueued', 'started']
 
 function statusBadge(status: JobRecord['status']) {
   const map: Record<string, string> = {
-    enqueued: 'bg-yellow-900 text-yellow-300',
-    started: 'bg-blue-900 text-blue-300',
+    enqueued:  'bg-yellow-900 text-yellow-300',
+    started:   'bg-blue-900 text-blue-300',
     completed: 'bg-green-900 text-green-300',
-    failed: 'bg-red-900 text-red-400',
+    failed:    'bg-red-900 text-red-400',
+    cancelled: 'bg-gray-700 text-gray-400',
   }
   return (
     <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${map[status] ?? 'bg-gray-800 text-gray-400'}`}>
@@ -29,6 +33,12 @@ function duration(start: string | null, end: string | null): string {
 
 export default function Jobs() {
   const { data, isLoading, error } = useJobs()
+  const cancelJob = useCancelJob()
+
+  function handleCancel(job: JobRecord) {
+    if (!window.confirm(`¿Cancelar el job "${job.job_type}" (${job.id.slice(0, 8)}…)?`)) return
+    cancelJob.mutate(job.id)
+  }
 
   return (
     <div className="p-8 space-y-6">
@@ -47,7 +57,7 @@ export default function Jobs() {
           <table className="w-full text-sm">
             <thead className="bg-gray-900">
               <tr>
-                {['Tipo', 'Estado', 'Progreso', 'Creado', 'Iniciado', 'Duración', 'Error'].map(
+                {['Tipo', 'Estado', 'Progreso', 'Creado', 'Iniciado', 'Duración', 'Error', 'Acciones'].map(
                   (h) => (
                     <th
                       key={h}
@@ -62,7 +72,7 @@ export default function Jobs() {
             <tbody>
               {data.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-6 text-center text-gray-500">
+                  <td colSpan={8} className="px-4 py-6 text-center text-gray-500">
                     Sin jobs registrados.
                   </td>
                 </tr>
@@ -100,6 +110,17 @@ export default function Jobs() {
                       </span>
                     ) : (
                       <span className="text-gray-600">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2">
+                    {hasAdminToken && CANCELLABLE.includes(job.status) && (
+                      <button
+                        onClick={() => handleCancel(job)}
+                        disabled={cancelJob.isPending}
+                        className="rounded px-2 py-1 text-xs font-medium bg-red-900 text-red-300 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        Cancelar
+                      </button>
                     )}
                   </td>
                 </tr>

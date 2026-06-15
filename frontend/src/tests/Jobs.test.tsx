@@ -34,6 +34,7 @@ vi.mock('../api/hooks', () => ({
     isLoading: false,
     error: null,
   }),
+  useCancelJob: () => ({ mutate: vi.fn(), isPending: false }),
 }))
 
 describe('Jobs', () => {

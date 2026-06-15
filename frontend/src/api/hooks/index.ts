@@ -118,3 +118,11 @@ export function useTrainML() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['jobs'] }),
   })
 }
+
+export function useCancelJob() {
+  const qc = useQueryClient()
+  return useMutation<{ cancelled: boolean; job_id: string }, Error, string>({
+    mutationFn: (jobId) => api.delete(`/api/jobs/${jobId}`, true),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['jobs'] }),
+  })
+}

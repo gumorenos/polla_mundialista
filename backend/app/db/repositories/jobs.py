@@ -70,3 +70,17 @@ class JobRepository:
                 "SELECT * FROM jobs ORDER BY created_at DESC LIMIT ?", (limit,)
             ).fetchall()
         ]
+
+    def cancel(self, job_id: str) -> bool:
+        """Mark job as cancelled. Returns True if a row was updated."""
+        cur = self._c.execute(
+            """
+            UPDATE jobs
+            SET status = 'cancelled',
+                finished_at = datetime('now'),
+                error_message = 'Cancelled by admin'
+            WHERE id = ? AND status IN ('enqueued', 'started')
+            """,
+            (job_id,),
+        )
+        return cur.rowcount > 0
