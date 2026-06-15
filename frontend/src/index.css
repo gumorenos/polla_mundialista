@@ -43,6 +43,24 @@ body {
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
+@keyframes pulse-green {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+@keyframes pulse-yellow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.job-status-pulse-green {
+  animation: pulse-green 1s ease-in-out infinite;
+}
+
+.job-status-pulse-yellow {
+  animation: pulse-yellow 2s ease-in-out infinite;
+}
+
 /* Light theme: override Tailwind dark classes on content elements */
 html.theme-light .bg-gray-950 { background-color: var(--color-bg) !important; }
 html.theme-light .bg-gray-900 { background-color: var(--color-surface) !important; }

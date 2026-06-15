@@ -61,6 +61,15 @@ class SimulationRepository:
             (status, started_at, finished_at, error_message, run_id),
         )
 
+    def run_exists(self, run_id: str) -> bool:
+        return (
+            self._c.execute(
+                "SELECT 1 FROM simulation_runs WHERE id = ? LIMIT 1",
+                (run_id,),
+            ).fetchone()
+            is not None
+        )
+
     def get_latest_by_model(self, model_name: str) -> dict[str, Any] | None:
         return _row(
             self._c.execute(
@@ -82,6 +91,12 @@ class SimulationRepository:
     # ------------------------------------------------------------------
     # Team results (INSERT only — no UPDATE)
     # ------------------------------------------------------------------
+
+    def get_existing_team_ids(self) -> set[str]:
+        return {
+            row[0]
+            for row in self._c.execute("SELECT id FROM teams").fetchall()
+        }
 
     def insert_team_result(self, result: dict[str, Any]) -> str:
         result_id = result.get("id") or str(uuid.uuid4())

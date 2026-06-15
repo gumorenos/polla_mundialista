@@ -144,29 +144,34 @@ def run_monte_carlo(
                 batch_idx + 1, num_batches, completed, n_iter,
             )
 
-        # Fetch valid team IDs from DB to guard against FK violations
-        valid_team_ids: set[str] = {
-            row[0]
-            for row in conn.execute("SELECT id FROM teams").fetchall()
-        }
-        if not valid_team_ids:
-            logger.warning(
-                "MC run %s: teams table is empty — team_id FK check skipped", run_id
-            )
-
-        # Persist per-team results (skip teams not in DB to avoid FK errors)
-        skipped = 0
-        for tid in all_team_ids:
-            if valid_team_ids and tid not in valid_team_ids:
-                logger.warning(
-                    "MC run %s: team_id '%s' not in teams table — skipping", run_id, tid
+        try:
+            if not repo.run_exists(run_id):
+                raise RuntimeError(
+                    f"simulation_run '{run_id}' was not persisted before team results insert"
                 )
-                skipped += 1
-                continue
-            rc    = rounds_count[tid]
-            wins  = win_count[tid]
-            total = n_iter
-            try:
+
+            valid_team_ids = repo.get_existing_team_ids()
+            if not valid_team_ids:
+                logger.warning(
+                    "MC run %s: teams table is empty — skipping all team results",
+                    run_id,
+                )
+
+            # Persist per-team results. Missing team rows are skipped to avoid
+            # aborting an otherwise valid simulation on reference-data drift.
+            skipped = 0
+            for tid in all_team_ids:
+                if tid not in valid_team_ids:
+                    logger.warning(
+                        "MC run %s: team_id '%s' not in teams table — skipping",
+                        run_id, tid,
+                    )
+                    skipped += 1
+                    continue
+
+                rc    = rounds_count[tid]
+                wins  = win_count[tid]
+                total = n_iter
                 repo.insert_team_result({
                     "simulation_run_id":   run_id,
                     "team_id":             tid,
@@ -180,23 +185,25 @@ def run_monte_carlo(
                     "win_tournament":      wins / total,
                     "expected_group_points": None,
                 })
-            except Exception as row_exc:  # noqa: BLE001
+
+            if skipped:
                 logger.warning(
-                    "MC run %s: failed to insert result for team '%s': %s — skipping",
-                    run_id, tid, row_exc,
+                    "MC run %s: skipped %d/%d team result(s)",
+                    run_id, skipped, len(all_team_ids),
                 )
-                skipped += 1
 
-        if skipped:
-            logger.warning(
-                "MC run %s: skipped %d/%d team result(s)", run_id, skipped, len(all_team_ids)
+            repo.update_run_status(
+                run_id, "completed",
+                finished_at=datetime.now(timezone.utc).isoformat(),
             )
-
-        repo.update_run_status(
-            run_id, "completed",
-            finished_at=datetime.now(timezone.utc).isoformat(),
-        )
-        conn.commit()
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            logger.exception(
+                "MC run %s: team result persistence failed; rolled back inserts",
+                run_id,
+            )
+            raise
 
         _log_top_5(all_team_ids, win_count, n_iter)
 

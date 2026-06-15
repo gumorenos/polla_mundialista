@@ -9,42 +9,61 @@ const CANCELLABLE: JobRecord['status'][] = ['enqueued', 'started', 'running']
 const STUCK_HEARTBEAT_STALE_MS = 60_000   // heartbeat older than 60 s → stuck
 const STUCK_NO_HEARTBEAT_MS    = 30 * 60_000  // no heartbeat + running >30 min → stuck
 
-function isStuck(job: JobRecord, now: number): boolean {
-  if (job.status !== 'running' && job.status !== 'started') return false
-  if (job.last_heartbeat) {
-    return now - new Date(job.last_heartbeat).getTime() > STUCK_HEARTBEAT_STALE_MS
-  }
-  if (job.started_at) {
-    return now - new Date(job.started_at).getTime() > STUCK_NO_HEARTBEAT_MS
-  }
-  return false
+function isActive(status: JobRecord['status']) {
+  return status === 'running' || status === 'started'
 }
 
-function StatusBadge({ job, now }: { job: JobRecord; now: number }) {
+function isStuck(job: JobRecord, now: number): boolean {
+  if (!isActive(job.status)) return false
+
+  const heartbeatStale = job.last_heartbeat
+    ? now - new Date(job.last_heartbeat).getTime() > STUCK_HEARTBEAT_STALE_MS
+    : false
+  const runningTooLong = job.started_at
+    ? now - new Date(job.started_at).getTime() > STUCK_NO_HEARTBEAT_MS
+    : false
+
+  return heartbeatStale || runningTooLong
+}
+
+function StatusIndicator({ job, now }: { job: JobRecord; now: number }) {
   const stuck = isStuck(job, now)
+  const active = isActive(job.status)
 
-  if ((job.status === 'running' || job.status === 'started') && stuck) {
-    return (
-      <span
-        title="Posiblemente atascado — sin heartbeat reciente"
-        className="inline-block rounded px-2 py-0.5 text-xs font-medium bg-amber-900 text-amber-300 cursor-help"
-      >
-        ⚠ atascado?
-      </span>
-    )
+  let dotClass = 'rounded-full bg-gray-500'
+  let textClass = 'text-gray-400'
+  let label: string = job.status
+  let title: string | undefined
+
+  if (active && stuck) {
+    dotClass = 'rounded-full bg-amber-400 job-status-pulse-yellow'
+    textClass = 'text-amber-300'
+    label = 'posiblemente atascado'
+    title = 'Sin heartbeat reciente o running por más de 30 minutos'
+  } else if (active) {
+    dotClass = 'rounded-full bg-green-400 job-status-pulse-green'
+    textClass = 'text-green-300'
+  } else if (job.status === 'failed') {
+    dotClass = 'rounded-full bg-red-500'
+    textClass = 'text-red-400'
+  } else if (job.status === 'completed') {
+    dotClass = 'rounded-full bg-green-500'
+    textClass = 'text-green-300'
+  } else if (job.status === 'enqueued') {
+    dotClass = 'rounded-sm bg-gray-400'
+    textClass = 'text-gray-300'
+  } else if (job.status === 'cancelled') {
+    dotClass = 'rounded-full bg-gray-600'
+    textClass = 'text-gray-400'
   }
 
-  const map: Record<string, string> = {
-    enqueued:  'bg-yellow-900 text-yellow-300',
-    started:   'bg-blue-900 text-blue-300',
-    running:   'bg-blue-900 text-blue-300',
-    completed: 'bg-green-900 text-green-300',
-    failed:    'bg-red-900 text-red-400',
-    cancelled: 'bg-gray-700 text-gray-400',
-  }
   return (
-    <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${map[job.status] ?? 'bg-gray-800 text-gray-400'}`}>
-      {job.status}
+    <span
+      title={title}
+      className="inline-flex items-center gap-2 whitespace-nowrap text-xs font-medium"
+    >
+      <span className={`h-2.5 w-2.5 ${dotClass}`} aria-hidden="true" />
+      <span className={textClass}>{label}</span>
     </span>
   )
 }
@@ -71,6 +90,11 @@ function elapsed(start: string | null, now: number): string {
   return m > 0 ? `${m}m ${s}s` : `${s}s`
 }
 
+function jobDuration(job: JobRecord, now: number): string {
+  if (isActive(job.status)) return elapsed(job.started_at, now)
+  return duration(job.started_at, job.finished_at)
+}
+
 export default function Jobs() {
   const { data, isLoading, error } = useJobs()
   const cancelJob = useCancelJob()
@@ -86,8 +110,6 @@ export default function Jobs() {
     if (!window.confirm(`¿Cancelar el job "${job.job_type}" (${job.id.slice(0, 8)}…)?`)) return
     cancelJob.mutate(job.id)
   }
-
-  const isActive = (s: JobRecord['status']) => s === 'running' || s === 'started'
 
   return (
     <div className="p-8 space-y-6">
@@ -106,7 +128,7 @@ export default function Jobs() {
           <table className="w-full text-sm">
             <thead className="bg-gray-900">
               <tr>
-                {['Tipo', 'Estado', 'Progreso', 'Transcurrido', 'Creado', 'Iniciado', 'Duración', 'Error', 'Acciones'].map(
+                {['Tipo', 'Estado', 'Progreso', 'Creado', 'Iniciado', 'Duración', 'Error', 'Acciones'].map(
                   (h) => (
                     <th
                       key={h}
@@ -121,7 +143,7 @@ export default function Jobs() {
             <tbody>
               {data.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-6 text-center text-gray-500">
+                  <td colSpan={8} className="px-4 py-6 text-center text-gray-500">
                     Sin jobs registrados.
                   </td>
                 </tr>
@@ -130,7 +152,7 @@ export default function Jobs() {
                 <tr key={job.id} className="border-t border-gray-800 hover:bg-gray-900">
                   <td className="px-4 py-2 text-gray-200">{job.job_type}</td>
                   <td className="px-4 py-2">
-                    <StatusBadge job={job} now={now} />
+                    <StatusIndicator job={job} now={now} />
                   </td>
                   <td className="px-4 py-2">
                     <div className="flex items-center gap-2">
@@ -145,23 +167,16 @@ export default function Jobs() {
                       </span>
                     </div>
                   </td>
-                  <td className="px-4 py-2 whitespace-nowrap font-mono text-xs">
-                    {isActive(job.status) ? (
-                      <span className={isStuck(job, now) ? 'text-amber-400' : 'text-blue-400'}>
-                        {elapsed(job.started_at, now)}
-                      </span>
-                    ) : (
-                      <span className="text-gray-600">—</span>
-                    )}
-                  </td>
                   <td className="px-4 py-2 text-gray-400 whitespace-nowrap">
                     {fmtDate(job.created_at)}
                   </td>
                   <td className="px-4 py-2 text-gray-400 whitespace-nowrap">
                     {fmtDate(job.started_at)}
                   </td>
-                  <td className="px-4 py-2 text-gray-400 whitespace-nowrap">
-                    {duration(job.started_at, job.finished_at)}
+                  <td className="px-4 py-2 whitespace-nowrap font-mono text-xs">
+                    <span className={isActive(job.status) ? (isStuck(job, now) ? 'text-amber-400' : 'text-green-300') : 'text-gray-400'}>
+                      {jobDuration(job, now)}
+                    </span>
                   </td>
                   <td className="px-4 py-2 max-w-xs">
                     {job.error_message ? (

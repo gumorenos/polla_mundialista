@@ -278,19 +278,21 @@ class TestFKRobustness:
 
         conn = _make_db()
 
-        # Insert one real group + a ghost team that has NO teams row
+        # Insert one group with a dangling team reference to emulate legacy or
+        # externally corrupted data. Foreign keys are re-enabled before running.
+        conn.execute("PRAGMA foreign_keys=OFF")
         conn.execute("INSERT INTO groups (id, tournament) VALUES ('G_FK', 'WC2026')")
         conn.execute("INSERT INTO teams (id, name) VALUES ('REAL1', 'Real Team')")
         conn.execute("INSERT INTO teams (id, name) VALUES ('REAL2', 'Real Team 2')")
         conn.execute("INSERT INTO teams (id, name) VALUES ('REAL3', 'Real Team 3')")
-        conn.execute("INSERT INTO teams (id, name) VALUES ('REAL4', 'Real Team 4')")
         # GHOST is intentionally NOT in teams — should be skipped, not crash
-        for pos, tid in enumerate(["REAL1", "REAL2", "REAL3", "REAL4"], start=1):
+        for pos, tid in enumerate(["REAL1", "REAL2", "REAL3", "GHOST"], start=1):
             conn.execute(
                 "INSERT INTO group_teams (group_id, team_id, position) VALUES ('G_FK', ?, ?)",
                 (tid, pos),
             )
         conn.commit()
+        conn.execute("PRAGMA foreign_keys=ON")
 
         # Run a minimal simulation — must not raise
         run_id = run_monte_carlo(
@@ -305,6 +307,11 @@ class TestFKRobustness:
         ).fetchone()
         assert row is not None
         assert row["status"] == "completed", f"Expected 'completed', got '{row['status']}'"
+        ghost_result = conn.execute(
+            "SELECT 1 FROM simulation_team_results WHERE simulation_run_id = ? AND team_id = 'GHOST'",
+            (run_id,),
+        ).fetchone()
+        assert ghost_result is None
         conn.close()
 
     def test_missing_team_in_db_produces_warning(self, caplog):
