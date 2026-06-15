@@ -1,4 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom'
+import { useTheme, type Theme } from '../hooks/useTheme'
 
 const navItems = [
   { to: '/', label: 'Dashboard' },
@@ -9,17 +10,71 @@ const navItems = [
   { to: '/jobs', label: 'Jobs' },
 ]
 
+const themeOptions: { value: Theme; label: string; icon: string; title: string }[] = [
+  { value: 'light', label: 'Light', icon: '☀', title: 'Tema claro' },
+  { value: 'dark',  label: 'Dark',  icon: '🌙', title: 'Tema oscuro' },
+  { value: 'black', label: 'Black', icon: '⬛', title: 'AMOLED negro' },
+]
+
+function ThemeSwitcher() {
+  const { theme, setTheme } = useTheme()
+
+  return (
+    <div
+      className="px-3 py-3 border-t"
+      style={{ borderColor: 'var(--color-border)' }}
+    >
+      <p
+        className="text-xs font-semibold uppercase tracking-wider mb-2"
+        style={{ color: 'var(--color-muted)' }}
+      >
+        Tema
+      </p>
+      <div className="flex gap-1">
+        {themeOptions.map((opt) => (
+          <button
+            key={opt.value}
+            title={opt.title}
+            onClick={() => setTheme(opt.value)}
+            className="flex-1 flex flex-col items-center gap-0.5 rounded py-1.5 text-xs transition-colors"
+            style={{
+              background: theme === opt.value ? 'var(--color-accent)' : 'var(--color-surface2)',
+              color: theme === opt.value ? '#ffffff' : 'var(--color-muted)',
+            }}
+          >
+            <span className="text-base leading-none">{opt.icon}</span>
+            <span>{opt.label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export default function Layout() {
   return (
-    <div className="flex min-h-screen bg-gray-950 text-gray-100">
+    <div
+      className="flex min-h-screen"
+      style={{ background: 'var(--color-bg)', color: 'var(--color-text)' }}
+    >
       {/* Sidebar */}
-      <nav className="w-56 shrink-0 border-r border-gray-800 bg-gray-900 flex flex-col">
-        <div className="px-4 py-5 border-b border-gray-800">
+      <nav
+        className="w-56 shrink-0 border-r flex flex-col"
+        style={{
+          background: 'var(--color-surface)',
+          borderColor: 'var(--color-border)',
+        }}
+      >
+        <div
+          className="px-4 py-5 border-b"
+          style={{ borderColor: 'var(--color-border)' }}
+        >
           <h1 className="text-sm font-bold text-blue-400 leading-tight">
             Oráculo<br />Mundial 2026
           </h1>
         </div>
-        <ul className="mt-4 flex flex-col gap-1 px-2">
+
+        <ul className="mt-4 flex flex-col gap-1 px-2 flex-1">
           {navItems.map(({ to, label }) => (
             <li key={to}>
               <NavLink
@@ -38,6 +93,8 @@ export default function Layout() {
             </li>
           ))}
         </ul>
+
+        <ThemeSwitcher />
       </nav>
 
       {/* Main content */}

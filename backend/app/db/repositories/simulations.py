@@ -65,9 +65,14 @@ class SimulationRepository:
         return _row(
             self._c.execute(
                 """
-                SELECT * FROM simulation_runs
-                WHERE model_name = ? AND status = 'completed'
-                ORDER BY finished_at DESC
+                SELECT sr.* FROM simulation_runs sr
+                WHERE sr.model_name = ?
+                  AND sr.status = 'completed'
+                  AND EXISTS (
+                      SELECT 1 FROM simulation_team_results str
+                      WHERE str.simulation_run_id = sr.id
+                  )
+                ORDER BY sr.finished_at DESC
                 LIMIT 1
                 """,
                 (model_name,),

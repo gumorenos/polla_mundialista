@@ -390,6 +390,41 @@ _MIGRATIONS = [
 ]
 
 
+def fix_stuck_records(conn: sqlite3.Connection) -> tuple[int, int]:
+    """Mark simulation_runs and jobs stuck in 'running' for >30 min as failed.
+
+    Safe to call on every startup — idempotent (only matches running rows with
+    no finished_at that are older than 30 minutes).
+
+    Returns:
+        (simulation_runs_fixed, jobs_fixed)
+    """
+    cur_sim = conn.execute(
+        """
+        UPDATE simulation_runs
+        SET status        = 'failed',
+            finished_at   = datetime('now'),
+            error_message = 'Stuck in running state — fixed on startup'
+        WHERE status = 'running'
+          AND finished_at IS NULL
+          AND started_at < datetime('now', '-30 minutes')
+        """
+    )
+    cur_job = conn.execute(
+        """
+        UPDATE jobs
+        SET status        = 'failed',
+            finished_at   = datetime('now'),
+            error_message = 'Stuck in running state — fixed on startup'
+        WHERE status IN ('running', 'started')
+          AND finished_at IS NULL
+          AND started_at < datetime('now', '-30 minutes')
+        """
+    )
+    conn.commit()
+    return cur_sim.rowcount, cur_job.rowcount
+
+
 def run_migrations(conn: sqlite3.Connection | None = None) -> None:
     """Apply all migrations in order.
 

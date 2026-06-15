@@ -83,21 +83,32 @@ def run_simulation_task(
         )
         conn.commit()
 
-        run_id = run_monte_carlo(
-            model_name=model_name,
-            conn=conn,
-            iterations=iterations,
-            seed=seed,
-            progress_callback=_progress,
-        )
-        job_repo.update_progress(job_id, 1.0)
-        job_repo.update_status(
-            job_id, "completed",
-            finished_at=datetime.now(timezone.utc).isoformat(),
-            result_ref=run_id,
-        )
-        conn.commit()
-        return run_id
+        run_id: str | None = None
+        try:
+            run_id = run_monte_carlo(
+                model_name=model_name,
+                conn=conn,
+                iterations=iterations,
+                seed=seed,
+                progress_callback=_progress,
+            )
+            job_repo.update_progress(job_id, 1.0)
+            job_repo.update_status(
+                job_id, "completed",
+                finished_at=datetime.now(timezone.utc).isoformat(),
+                result_ref=run_id,
+            )
+            conn.commit()
+        except Exception as exc:
+            logger.exception("run_simulation_task failed for job %s: %s", job_id, exc)
+            job_repo.update_status(
+                job_id, "failed",
+                finished_at=datetime.now(timezone.utc).isoformat(),
+                error_message=str(exc),
+            )
+            conn.commit()
+            raise
+        return run_id  # type: ignore[return-value]
 
     if _conn is not None:
         run_id = _do_run(_conn)
@@ -119,18 +130,29 @@ def run_full_refresh_task(
     from app.services.jobs.pipeline import run_full_refresh
 
     def _do_run(conn: sqlite3.Connection) -> dict:
-        JobRepository(conn).update_status(
+        job_repo = JobRepository(conn)
+        job_repo.update_status(
             job_id, "running",
             started_at=datetime.now(timezone.utc).isoformat(),
         )
         conn.commit()
-        result = run_full_refresh(conn, job_id)
-        JobRepository(conn).update_status(
-            job_id, "completed",
-            finished_at=datetime.now(timezone.utc).isoformat(),
-        )
-        conn.commit()
-        return result
+        try:
+            result = run_full_refresh(conn, job_id)
+            job_repo.update_status(
+                job_id, "completed",
+                finished_at=datetime.now(timezone.utc).isoformat(),
+            )
+            conn.commit()
+            return result
+        except Exception as exc:
+            logger.exception("run_full_refresh_task failed for job %s: %s", job_id, exc)
+            job_repo.update_status(
+                job_id, "failed",
+                finished_at=datetime.now(timezone.utc).isoformat(),
+                error_message=str(exc),
+            )
+            conn.commit()
+            raise
 
     if _conn is not None:
         return _do_run(_conn)
@@ -148,18 +170,29 @@ def run_daily_update_task(
     from app.services.jobs.pipeline import run_daily_update
 
     def _do_run(conn: sqlite3.Connection) -> dict:
-        JobRepository(conn).update_status(
+        job_repo = JobRepository(conn)
+        job_repo.update_status(
             job_id, "running",
             started_at=datetime.now(timezone.utc).isoformat(),
         )
         conn.commit()
-        result = run_daily_update(conn, job_id)
-        JobRepository(conn).update_status(
-            job_id, "completed",
-            finished_at=datetime.now(timezone.utc).isoformat(),
-        )
-        conn.commit()
-        return result
+        try:
+            result = run_daily_update(conn, job_id)
+            job_repo.update_status(
+                job_id, "completed",
+                finished_at=datetime.now(timezone.utc).isoformat(),
+            )
+            conn.commit()
+            return result
+        except Exception as exc:
+            logger.exception("run_daily_update_task failed for job %s: %s", job_id, exc)
+            job_repo.update_status(
+                job_id, "failed",
+                finished_at=datetime.now(timezone.utc).isoformat(),
+                error_message=str(exc),
+            )
+            conn.commit()
+            raise
 
     if _conn is not None:
         return _do_run(_conn)
@@ -197,22 +230,30 @@ def run_ml_training_task(
             started_at=datetime.now(timezone.utc).isoformat(),
         )
         conn.commit()
-
-        result = train_ml_model(
-            conn,
-            algorithm=algorithm,
-            train_start_year=train_start_year,
-            validation_split=validation_split,
-        )
-
-        job_repo.update_progress(job_id, 1.0)
-        job_repo.update_status(
-            job_id, "completed",
-            finished_at=datetime.now(timezone.utc).isoformat(),
-            result_ref=result.get("model_id"),
-        )
-        conn.commit()
-        return result
+        try:
+            result = train_ml_model(
+                conn,
+                algorithm=algorithm,
+                train_start_year=train_start_year,
+                validation_split=validation_split,
+            )
+            job_repo.update_progress(job_id, 1.0)
+            job_repo.update_status(
+                job_id, "completed",
+                finished_at=datetime.now(timezone.utc).isoformat(),
+                result_ref=result.get("model_id"),
+            )
+            conn.commit()
+            return result
+        except Exception as exc:
+            logger.exception("run_ml_training_task failed for job %s: %s", job_id, exc)
+            job_repo.update_status(
+                job_id, "failed",
+                finished_at=datetime.now(timezone.utc).isoformat(),
+                error_message=str(exc),
+            )
+            conn.commit()
+            raise
 
     if _conn is not None:
         return _do_run(_conn)
@@ -269,16 +310,24 @@ def run_news_task(
             started_at=datetime.now(timezone.utc).isoformat(),
         )
         conn.commit()
-
-        result = run_news_analysis(conn)
-
-        job_repo.update_progress(job_id, 1.0)
-        job_repo.update_status(
-            job_id, "completed",
-            finished_at=datetime.now(timezone.utc).isoformat(),
-        )
-        conn.commit()
-        return result
+        try:
+            result = run_news_analysis(conn)
+            job_repo.update_progress(job_id, 1.0)
+            job_repo.update_status(
+                job_id, "completed",
+                finished_at=datetime.now(timezone.utc).isoformat(),
+            )
+            conn.commit()
+            return result
+        except Exception as exc:
+            logger.exception("run_news_task failed for job %s: %s", job_id, exc)
+            job_repo.update_status(
+                job_id, "failed",
+                finished_at=datetime.now(timezone.utc).isoformat(),
+                error_message=str(exc),
+            )
+            conn.commit()
+            raise
 
     if _conn is not None:
         return _do_run(_conn)

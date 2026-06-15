@@ -1,3 +1,67 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ─── Theme CSS variables ─────────────────────────────────────────────────── */
+
+:root,
+html.theme-dark {
+  --color-bg:        #030712;   /* gray-950 */
+  --color-surface:   #111827;   /* gray-900 */
+  --color-surface2:  #1f2937;   /* gray-800 */
+  --color-border:    #1f2937;   /* gray-800 */
+  --color-text:      #f3f4f6;   /* gray-100 */
+  --color-muted:     #9ca3af;   /* gray-400 */
+  --color-accent:    #3b82f6;   /* blue-500 */
+}
+
+html.theme-black {
+  --color-bg:        #000000;
+  --color-surface:   #0d0d0d;
+  --color-surface2:  #1a1a1a;
+  --color-border:    #1a1a1a;
+  --color-text:      #f3f4f6;
+  --color-muted:     #9ca3af;
+  --color-accent:    #3b82f6;
+}
+
+html.theme-light {
+  --color-bg:        #f8fafc;
+  --color-surface:   #ffffff;
+  --color-surface2:  #f1f5f9;
+  --color-border:    #e2e8f0;
+  --color-text:      #0f172a;
+  --color-muted:     #64748b;
+  --color-accent:    #2563eb;
+}
+
+/* ─── Apply theme to structural elements ─────────────────────────────────── */
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+/* Light theme: override Tailwind dark classes on content elements */
+html.theme-light .bg-gray-950 { background-color: var(--color-bg) !important; }
+html.theme-light .bg-gray-900 { background-color: var(--color-surface) !important; }
+html.theme-light .bg-gray-800 { background-color: var(--color-surface2) !important; }
+html.theme-light .bg-gray-700 { background-color: #e2e8f0 !important; }
+html.theme-light .text-white  { color: var(--color-text) !important; }
+html.theme-light .text-gray-100,
+html.theme-light .text-gray-200 { color: var(--color-text) !important; }
+html.theme-light .text-gray-300,
+html.theme-light .text-gray-400 { color: var(--color-muted) !important; }
+html.theme-light .text-gray-500,
+html.theme-light .text-gray-600 { color: #94a3b8 !important; }
+html.theme-light .border-gray-800,
+html.theme-light .border-gray-700 { border-color: var(--color-border) !important; }
+html.theme-light .hover\:bg-gray-900:hover { background-color: var(--color-surface2) !important; }
+html.theme-light .hover\:bg-gray-800:hover { background-color: var(--color-surface2) !important; }
+
+/* Black theme: just deepen the darkest backgrounds */
+html.theme-black .bg-gray-950 { background-color: var(--color-bg) !important; }
+html.theme-black .bg-gray-900 { background-color: var(--color-surface) !important; }
+html.theme-black .bg-gray-800 { background-color: var(--color-surface2) !important; }
+html.theme-black .border-gray-800 { border-color: var(--color-border) !important; }

@@ -20,7 +20,7 @@ from app.api.routes.snapshots import router as snapshots_router
 from app.core.config import settings
 from app.core.limiter import limiter
 from app.core.logging import get_logger, setup_logging
-from app.db.migrations import run_migrations
+from app.db.migrations import fix_stuck_records, run_migrations
 
 
 @asynccontextmanager
@@ -29,6 +29,14 @@ async def lifespan(app: FastAPI):
     logger = get_logger(__name__)
     logger.info("Oráculo Mundial 2026 — startup (env=%s)", settings.ENVIRONMENT)
     run_migrations()
+    from app.db.connection import db_transaction
+    with db_transaction() as conn:
+        sims_fixed, jobs_fixed = fix_stuck_records(conn)
+    if sims_fixed or jobs_fixed:
+        logger.warning(
+            "Startup cleanup: fixed %d stuck simulation_runs, %d stuck jobs",
+            sims_fixed, jobs_fixed,
+        )
     if settings.SCHEDULER_ENABLED:
         from app.scheduler.scheduler import start_scheduler
         start_scheduler()
