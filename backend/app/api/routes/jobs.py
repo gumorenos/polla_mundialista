@@ -52,7 +52,7 @@ def cancel_job(request: Request, job_id: str) -> dict[str, Any]:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Job '{job_id}' not found",
             )
-        if job["status"] not in ("enqueued", "started"):
+        if job["status"] not in ("enqueued", "started", "running"):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Job is '{job['status']}' and cannot be cancelled",

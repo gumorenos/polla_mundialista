@@ -16,13 +16,14 @@ export interface JobRecord {
   id: string
   rq_job_id: string | null
   job_type: string
-  status: 'enqueued' | 'started' | 'completed' | 'failed'
+  status: 'enqueued' | 'started' | 'running' | 'completed' | 'failed' | 'cancelled'
   progress: number
   error_message: string | null
   result_ref: string | null
   created_at: string
   started_at: string | null
   finished_at: string | null
+  last_heartbeat: string | null
 }
 
 export interface ModelMetrics {

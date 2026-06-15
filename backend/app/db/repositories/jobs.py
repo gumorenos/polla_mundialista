@@ -58,6 +58,13 @@ class JobRepository:
             "UPDATE jobs SET progress = ? WHERE id = ?", (progress, job_id)
         )
 
+    def update_heartbeat(self, job_id: str) -> None:
+        """Stamp last_heartbeat with the current UTC time."""
+        self._c.execute(
+            "UPDATE jobs SET last_heartbeat = datetime('now') WHERE id = ?",
+            (job_id,),
+        )
+
     def get_by_id(self, job_id: str) -> dict[str, Any] | None:
         return _row(
             self._c.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
@@ -79,7 +86,7 @@ class JobRepository:
             SET status = 'cancelled',
                 finished_at = datetime('now'),
                 error_message = 'Cancelled by admin'
-            WHERE id = ? AND status IN ('enqueued', 'started')
+            WHERE id = ? AND status IN ('enqueued', 'started', 'running')
             """,
             (job_id,),
         )

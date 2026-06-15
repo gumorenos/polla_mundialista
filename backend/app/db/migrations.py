@@ -379,6 +379,11 @@ def _m003_group_teams_position(conn: sqlite3.Connection) -> None:
     _add_col(conn, "group_teams", "position", "INTEGER DEFAULT 0")
 
 
+def _m004_jobs_last_heartbeat(conn: sqlite3.Connection) -> None:
+    """Add last_heartbeat column to jobs for worker liveness detection."""
+    _add_col(conn, "jobs", "last_heartbeat", "TEXT")
+
+
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
@@ -387,6 +392,7 @@ _MIGRATIONS = [
     _m001_create_all_tables,
     _m002_jobs_extend_schema,
     _m003_group_teams_position,
+    _m004_jobs_last_heartbeat,
 ]
 
 

@@ -7,9 +7,54 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import threading
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
+
+_HEARTBEAT_INTERVAL = 30.0  # seconds between DB heartbeat writes
+
+
+class _HeartbeatUpdater:
+    """Background thread that writes last_heartbeat to the jobs table every 30 s.
+
+    Opens its own DB connection so it never contends with the main task
+    connection. Safe to use as a context manager::
+
+        with _HeartbeatUpdater(job_id):
+            do_long_work()
+    """
+
+    def __init__(self, job_id: str, interval: float = _HEARTBEAT_INTERVAL) -> None:
+        self._job_id = job_id
+        self._interval = interval
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True, name=f"hb-{job_id[:8]}")
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._thread.join(timeout=self._interval + 5)
+
+    def __enter__(self) -> "_HeartbeatUpdater":
+        self.start()
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.stop()
+
+    def _run(self) -> None:
+        while not self._stop.wait(self._interval):
+            try:
+                from app.db.connection import db_transaction
+                from app.db.repositories.jobs import JobRepository
+
+                with db_transaction() as conn:
+                    JobRepository(conn).update_heartbeat(self._job_id)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Heartbeat update failed for job %s: %s", self._job_id, exc)
 
 
 def ping_task() -> str:
@@ -85,13 +130,14 @@ def run_simulation_task(
 
         run_id: str | None = None
         try:
-            run_id = run_monte_carlo(
-                model_name=model_name,
-                conn=conn,
-                iterations=iterations,
-                seed=seed,
-                progress_callback=_progress,
-            )
+            with _HeartbeatUpdater(job_id):
+                run_id = run_monte_carlo(
+                    model_name=model_name,
+                    conn=conn,
+                    iterations=iterations,
+                    seed=seed,
+                    progress_callback=_progress,
+                )
             job_repo.update_progress(job_id, 1.0)
             job_repo.update_status(
                 job_id, "completed",
@@ -137,7 +183,8 @@ def run_full_refresh_task(
         )
         conn.commit()
         try:
-            result = run_full_refresh(conn, job_id)
+            with _HeartbeatUpdater(job_id):
+                result = run_full_refresh(conn, job_id)
             job_repo.update_status(
                 job_id, "completed",
                 finished_at=datetime.now(timezone.utc).isoformat(),
@@ -177,7 +224,8 @@ def run_daily_update_task(
         )
         conn.commit()
         try:
-            result = run_daily_update(conn, job_id)
+            with _HeartbeatUpdater(job_id):
+                result = run_daily_update(conn, job_id)
             job_repo.update_status(
                 job_id, "completed",
                 finished_at=datetime.now(timezone.utc).isoformat(),
