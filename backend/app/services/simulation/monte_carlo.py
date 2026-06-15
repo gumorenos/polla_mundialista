@@ -144,24 +144,53 @@ def run_monte_carlo(
                 batch_idx + 1, num_batches, completed, n_iter,
             )
 
-        # Persist per-team results
+        # Fetch valid team IDs from DB to guard against FK violations
+        valid_team_ids: set[str] = {
+            row[0]
+            for row in conn.execute("SELECT id FROM teams").fetchall()
+        }
+        if not valid_team_ids:
+            logger.warning(
+                "MC run %s: teams table is empty — team_id FK check skipped", run_id
+            )
+
+        # Persist per-team results (skip teams not in DB to avoid FK errors)
+        skipped = 0
         for tid in all_team_ids:
+            if valid_team_ids and tid not in valid_team_ids:
+                logger.warning(
+                    "MC run %s: team_id '%s' not in teams table — skipping", run_id, tid
+                )
+                skipped += 1
+                continue
             rc    = rounds_count[tid]
             wins  = win_count[tid]
             total = n_iter
-            repo.insert_team_result({
-                "simulation_run_id":   run_id,
-                "team_id":             tid,
-                "win_group":           group_win_count[tid] / total,
-                "qualify":             qualify_count[tid]   / total,
-                "reach_round_of_32":   (rc.get(ROUND_R32, 0) + qualify_count[tid]) / total,
-                "reach_round_of_16":   rc.get(ROUND_R16, 0)  / total,
-                "reach_quarter_final": rc.get(ROUND_QF,  0)  / total,
-                "reach_semi_final":    rc.get(ROUND_SF,  0)  / total,
-                "reach_final":         rc.get(ROUND_FINAL, 0) / total,
-                "win_tournament":      wins / total,
-                "expected_group_points": None,
-            })
+            try:
+                repo.insert_team_result({
+                    "simulation_run_id":   run_id,
+                    "team_id":             tid,
+                    "win_group":           group_win_count[tid] / total,
+                    "qualify":             qualify_count[tid]   / total,
+                    "reach_round_of_32":   (rc.get(ROUND_R32, 0) + qualify_count[tid]) / total,
+                    "reach_round_of_16":   rc.get(ROUND_R16, 0)  / total,
+                    "reach_quarter_final": rc.get(ROUND_QF,  0)  / total,
+                    "reach_semi_final":    rc.get(ROUND_SF,  0)  / total,
+                    "reach_final":         rc.get(ROUND_FINAL, 0) / total,
+                    "win_tournament":      wins / total,
+                    "expected_group_points": None,
+                })
+            except Exception as row_exc:  # noqa: BLE001
+                logger.warning(
+                    "MC run %s: failed to insert result for team '%s': %s — skipping",
+                    run_id, tid, row_exc,
+                )
+                skipped += 1
+
+        if skipped:
+            logger.warning(
+                "MC run %s: skipped %d/%d team result(s)", run_id, skipped, len(all_team_ids)
+            )
 
         repo.update_run_status(
             run_id, "completed",

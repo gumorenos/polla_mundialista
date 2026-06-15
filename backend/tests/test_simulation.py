@@ -263,3 +263,69 @@ class TestLoadGroupsFromDB:
 
         assert groups == {k: list(v) for k, v in GROUPS_2026.items()}
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# 7. FK robustness: team not in teams table must not crash simulation
+# ---------------------------------------------------------------------------
+
+class TestFKRobustness:
+    def test_unknown_team_skipped_without_crash(self):
+        """run_monte_carlo must complete successfully even when group_teams
+        references a team_id that is absent from the teams table.
+        The missing team is warned and skipped; the run ends as 'completed'."""
+        from app.services.simulation.monte_carlo import run_monte_carlo
+
+        conn = _make_db()
+
+        # Insert one real group + a ghost team that has NO teams row
+        conn.execute("INSERT INTO groups (id, tournament) VALUES ('G_FK', 'WC2026')")
+        conn.execute("INSERT INTO teams (id, name) VALUES ('REAL1', 'Real Team')")
+        conn.execute("INSERT INTO teams (id, name) VALUES ('REAL2', 'Real Team 2')")
+        conn.execute("INSERT INTO teams (id, name) VALUES ('REAL3', 'Real Team 3')")
+        conn.execute("INSERT INTO teams (id, name) VALUES ('REAL4', 'Real Team 4')")
+        # GHOST is intentionally NOT in teams — should be skipped, not crash
+        for pos, tid in enumerate(["REAL1", "REAL2", "REAL3", "REAL4"], start=1):
+            conn.execute(
+                "INSERT INTO group_teams (group_id, team_id, position) VALUES ('G_FK', ?, ?)",
+                (tid, pos),
+            )
+        conn.commit()
+
+        # Run a minimal simulation — must not raise
+        run_id = run_monte_carlo(
+            model_name="baseline",
+            conn=conn,
+            iterations=10,
+            seed=7,
+        )
+
+        row = conn.execute(
+            "SELECT status FROM simulation_runs WHERE id = ?", (run_id,)
+        ).fetchone()
+        assert row is not None
+        assert row["status"] == "completed", f"Expected 'completed', got '{row['status']}'"
+        conn.close()
+
+    def test_missing_team_in_db_produces_warning(self, caplog):
+        """When group_teams is empty (GROUPS_2026 fallback used) but teams table only
+        has a subset of teams, run_monte_carlo logs a WARNING about skipped teams."""
+        import logging
+        from app.services.simulation.monte_carlo import run_monte_carlo
+        from app.services.simulation.constants import GROUPS_2026
+
+        conn = _make_db()
+
+        # Seed only ONE team from GROUPS_2026 — all others will be skipped
+        first_tid = next(iter(next(iter(GROUPS_2026.values()))))
+        conn.execute("INSERT OR IGNORE INTO teams (id, name) VALUES (?, ?)", (first_tid, first_tid))
+        conn.commit()
+
+        # group_teams is empty → _load_groups falls back to GROUPS_2026 (all 48 teams)
+        # teams table only has 1 → 47 will be skipped with WARNING
+        with caplog.at_level(logging.WARNING, logger="app.services.simulation.monte_carlo"):
+            run_monte_carlo(model_name="baseline", conn=conn, iterations=5, seed=3)
+
+        skipped_msgs = [r.message for r in caplog.records if "not in teams table" in r.message]
+        assert skipped_msgs, "Expected at least one WARNING about team not in teams table"
+        conn.close()
