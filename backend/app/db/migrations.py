@@ -384,6 +384,20 @@ def _m004_jobs_last_heartbeat(conn: sqlite3.Connection) -> None:
     _add_col(conn, "jobs", "last_heartbeat", "TEXT")
 
 
+def _m005_admin_password_history(conn: sqlite3.Connection) -> None:
+    """Audit table for admin password changes."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS admin_password_history (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            changed_at   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            changed_by   TEXT NOT NULL DEFAULT 'system',
+            password_hash TEXT NOT NULL
+        )
+        """
+    )
+
+
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
@@ -393,6 +407,7 @@ _MIGRATIONS = [
     _m002_jobs_extend_schema,
     _m003_group_teams_position,
     _m004_jobs_last_heartbeat,
+    _m005_admin_password_history,
 ]
 
 

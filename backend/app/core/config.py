@@ -89,6 +89,7 @@ class Settings(BaseSettings):
     # Security
     # ------------------------------------------------------------------
     ADMIN_TOKEN: str = ""
+    ADMIN_PASSWORD: str = Field(default="", description="Contraseña amigable para login web (distinta del token API)")
     CORS_ORIGINS: List[str] = Field(
         default=["http://localhost:5173", "http://localhost:3000"]
     )
@@ -162,11 +163,17 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_production_secrets(self) -> "Settings":
         _unsafe = {"", "change_me_in_production"}
-        if self.ENVIRONMENT == "production" and self.ADMIN_TOKEN in _unsafe:
-            raise ValueError(
-                "ADMIN_TOKEN must be set to a non-placeholder value in production. "
-                "Set ENVIRONMENT=development to bypass this check."
-            )
+        if self.ENVIRONMENT == "production":
+            if self.ADMIN_TOKEN in _unsafe:
+                raise ValueError(
+                    "ADMIN_TOKEN must be set to a non-placeholder value in production. "
+                    "Set ENVIRONMENT=development to bypass this check."
+                )
+            if self.ADMIN_PASSWORD in _unsafe:
+                raise ValueError(
+                    "ADMIN_PASSWORD must be set in production. "
+                    "Use a memorable passphrase (min 8 chars)."
+                )
         return self
 
     @field_validator(

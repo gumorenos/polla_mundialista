@@ -46,11 +46,19 @@ Variables críticas a rellenar:
 
 | Variable | Descripción |
 |---|---|
-| `ADMIN_TOKEN` | `openssl rand -hex 32` — protege /admin y /pipelines |
+| `ADMIN_TOKEN` | Token para API directa (curl/scripts). Genera: `python3 -c "import secrets; print(secrets.token_hex(32))"` |
+| `ADMIN_PASSWORD` | Contraseña para login web (ej: `tunombre2026`). Se puede cambiar desde la UI. |
 | `API_FOOTBALL_KEY` | API key de api-sports.io |
 | `OPENROUTER_API_KEY` | API key de OpenRouter (LLM lesiones) |
 | `CORS_ORIGINS` | URL pública del frontend (Cloudflare Tunnel) |
 | `ENVIRONMENT` | Cambiar a `production` |
+
+> **ADMIN_TOKEN y ADMIN_PASSWORD son distintos:**
+> - `ADMIN_TOKEN`: token largo para scripts/curl directo a la API (nunca lo escribes a mano)
+> - `ADMIN_PASSWORD`: contraseña amigable para el login web (la escribes tú)
+>
+> Al cambiar `ADMIN_PASSWORD` desde la UI, debes actualizar el valor en `.env` y reiniciar
+> el contenedor (`docker compose -f docker-compose.prod.yml restart api`) para que tome efecto.
 
 ---
 

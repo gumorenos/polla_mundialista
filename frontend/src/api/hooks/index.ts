@@ -71,9 +71,9 @@ export function useTeamStats(model = 'poisson') {
 }
 
 export function useAuthStatus() {
-  return useQuery<{ authenticated: boolean }>({
+  return useQuery<{ authenticated: boolean; must_change_password: boolean }>({
     queryKey: ['auth-status'],
-    queryFn: () => api.get<{ authenticated: boolean }>('/api/auth/status'),
+    queryFn: () => api.get<{ authenticated: boolean; must_change_password: boolean }>('/api/auth/status'),
     retry: false,
     staleTime: 60_000,
   })

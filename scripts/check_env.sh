@@ -71,6 +71,21 @@ else
   log_ok "ADMIN_TOKEN configurado (${#ADMIN_TOKEN} chars)"
 fi
 
+ADMIN_PASSWORD="$(get_env ADMIN_PASSWORD)"
+if [[ -z "$ADMIN_PASSWORD" ]]; then
+  log_err "ADMIN_PASSWORD está vacío — requerido para el login web"
+elif is_placeholder "$ADMIN_PASSWORD"; then
+  if [[ "$ENVIRONMENT" == "production" ]]; then
+    log_err "ADMIN_PASSWORD tiene valor placeholder — cámbialo antes de deploy"
+  else
+    log_warn "ADMIN_PASSWORD tiene valor placeholder (OK en desarrollo)"
+  fi
+elif [[ ${#ADMIN_PASSWORD} -lt 6 ]]; then
+  log_warn "ADMIN_PASSWORD tiene menos de 6 caracteres — se recomienda al menos 8"
+else
+  log_ok "ADMIN_PASSWORD configurado (${#ADMIN_PASSWORD} chars)"
+fi
+
 echo ""
 echo "--- APIs externas (requeridas para datos live) ---"
 
