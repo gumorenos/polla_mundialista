@@ -1,8 +1,16 @@
 import { useState } from 'react'
-import { useRunSimulation, useSimulations } from '../api/hooks'
-import type { TeamResult } from '../types'
+import { useRunSimulation, useSimulations, useSimulationComparison } from '../api/hooks'
+import type { TeamResult, SimulationComparisonTeam } from '../types'
 
 const MODELS = ['baseline', 'elo', 'poisson', 'poisson_context', 'ml_calibrated']
+
+const MODEL_LABELS: Record<string, string> = {
+  baseline: 'Baseline',
+  elo: 'ELO',
+  poisson: 'Poisson',
+  poisson_context: 'Poisson+Ctx',
+  ml_calibrated: 'ML Calibrado',
+}
 
 function fmt(n: number) {
   return (n * 100).toFixed(1) + '%'
@@ -46,10 +54,73 @@ function TeamTable({ rows }: { rows: TeamResult[] }) {
   )
 }
 
+function ComparisonTable({ teams, models }: { teams: SimulationComparisonTeam[]; models: string[] }) {
+  return (
+    <div className="overflow-x-auto rounded-lg border border-gray-800">
+      <table className="w-full text-sm">
+        <thead className="bg-gray-900">
+          <tr>
+            <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-400">#</th>
+            <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-400">Selección</th>
+            {models.map((m) => (
+              <th key={m} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-400">
+                {MODEL_LABELS[m] ?? m}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {teams.map((team, i) => {
+            const vals = models.map((m) => team[m as keyof SimulationComparisonTeam] as number | null)
+            const presentVals = vals.filter((v): v is number => v !== null)
+            const max = presentVals.length > 0 ? Math.max(...presentVals) : null
+            const min = presentVals.length > 0 ? Math.min(...presentVals) : null
+
+            return (
+              <tr key={team.team_id} className="border-t border-gray-800 hover:bg-gray-900">
+                <td className="px-4 py-2 text-gray-500">{i + 1}</td>
+                <td className="px-4 py-2 font-medium text-white">{team.team_name}</td>
+                {vals.map((val, mi) => {
+                  const isMax = val !== null && val === max
+                  const isMin = val !== null && val === min && presentVals.length > 1
+                  return (
+                    <td
+                      key={models[mi]}
+                      className={`px-4 py-2 font-mono text-xs ${
+                        val === null
+                          ? 'text-gray-600'
+                          : isMax
+                          ? 'text-green-400 font-bold'
+                          : isMin
+                          ? 'text-red-400'
+                          : 'text-gray-300'
+                      }`}
+                    >
+                      {val === null ? '—' : fmt(val)}
+                    </td>
+                  )
+                })}
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 export default function Simulations() {
+  const [tab, setTab] = useState<'individual' | 'comparar'>('individual')
   const [model, setModel] = useState('poisson')
   const { data, isLoading, error } = useSimulations(model)
   const runSim = useRunSimulation()
+  const comparison = useSimulationComparison()
+
+  const modelsWithData = comparison.data
+    ? comparison.data.models.filter((m) =>
+        comparison.data!.teams.some((t) => t[m as keyof SimulationComparisonTeam] !== null),
+      )
+    : []
 
   function handleRun() {
     runSim.mutate({ model_name: model })
@@ -64,60 +135,114 @@ export default function Simulations() {
             Últimos resultados por modelo — 30,000 iteraciones
           </p>
         </div>
-        <div className="flex gap-3">
-          <select
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            className="rounded border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200"
-          >
-            {MODELS.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
-          <button
-            onClick={handleRun}
-            disabled={runSim.isPending}
-            className="rounded bg-blue-700 px-4 py-2 text-sm text-white hover:bg-blue-600 disabled:opacity-50"
-          >
-            {runSim.isPending ? 'Encolando…' : 'Simular'}
-          </button>
-        </div>
+        {tab === 'individual' && (
+          <div className="flex gap-3">
+            <select
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              className="rounded border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200"
+            >
+              {MODELS.map((m) => (
+                <option key={m} value={m}>
+                  {MODEL_LABELS[m] ?? m}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={handleRun}
+              disabled={runSim.isPending}
+              className="rounded bg-blue-700 px-4 py-2 text-sm text-white hover:bg-blue-600 disabled:opacity-50"
+            >
+              {runSim.isPending ? 'Encolando…' : 'Simular'}
+            </button>
+          </div>
+        )}
       </div>
 
-      {runSim.isSuccess && (
-        <div className="rounded bg-green-900/40 border border-green-800 px-4 py-2 text-sm text-green-300">
-          Simulación encolada — job_id: {runSim.data.job_id}
-        </div>
-      )}
+      {/* Tabs */}
+      <div className="flex gap-1 border-b border-gray-800">
+        {(['individual', 'comparar'] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`px-4 py-2 text-sm font-medium transition-colors ${
+              tab === t
+                ? 'border-b-2 border-blue-500 text-blue-400'
+                : 'text-gray-400 hover:text-gray-200'
+            }`}
+          >
+            {t === 'individual' ? 'Por modelo' : 'Comparar modelos'}
+          </button>
+        ))}
+      </div>
 
-      {isLoading && <p className="text-gray-400">Cargando resultados…</p>}
-      {error && (
-        <p className="text-yellow-400">
-          Sin simulación completada para el modelo «{model}». Pulsa «Simular» para iniciar una.
-        </p>
-      )}
-
-      {data && (
+      {/* Individual model view */}
+      {tab === 'individual' && (
         <>
-          <div className="flex gap-6 text-sm text-gray-400">
-            <span>
-              Iteraciones: <span className="text-white">{data.run.iterations.toLocaleString()}</span>
-            </span>
-            <span>
-              Estado: <span className="text-white">{data.run.status}</span>
-            </span>
-            <span>
-              Ejecutado:{' '}
-              <span className="text-white">
-                {data.run.finished_at
-                  ? new Date(data.run.finished_at).toLocaleString()
-                  : '—'}
-              </span>
-            </span>
-          </div>
-          <TeamTable rows={data.team_results} />
+          {runSim.isSuccess && (
+            <div className="rounded bg-green-900/40 border border-green-800 px-4 py-2 text-sm text-green-300">
+              Simulación encolada — job_id: {runSim.data.job_id}
+            </div>
+          )}
+
+          {isLoading && <p className="text-gray-400">Cargando resultados…</p>}
+          {error && (
+            <p className="text-yellow-400">
+              Sin simulación completada para el modelo «{MODEL_LABELS[model] ?? model}». Pulsa «Simular» para iniciar una.
+            </p>
+          )}
+
+          {data && (
+            <>
+              <div className="flex gap-6 text-sm text-gray-400">
+                <span>
+                  Iteraciones: <span className="text-white">{data.run.iterations.toLocaleString()}</span>
+                </span>
+                <span>
+                  Estado: <span className="text-white">{data.run.status}</span>
+                </span>
+                <span>
+                  Ejecutado:{' '}
+                  <span className="text-white">
+                    {data.run.finished_at
+                      ? new Date(data.run.finished_at).toLocaleString()
+                      : '—'}
+                  </span>
+                </span>
+              </div>
+              <TeamTable rows={data.team_results} />
+            </>
+          )}
+        </>
+      )}
+
+      {/* Comparison view */}
+      {tab === 'comparar' && (
+        <>
+          {comparison.isLoading && <p className="text-gray-400">Cargando comparación…</p>}
+          {comparison.error && (
+            <p className="text-yellow-400">Error al cargar la comparación.</p>
+          )}
+          {comparison.data && modelsWithData.length < 2 && (
+            <p className="text-yellow-400">
+              Se necesitan al menos 2 modelos con simulaciones completadas para comparar.
+              Actualmente hay {modelsWithData.length}.
+            </p>
+          )}
+          {comparison.data && modelsWithData.length >= 2 && (
+            <>
+              <div className="text-sm text-gray-400">
+                Modelos disponibles:{' '}
+                {modelsWithData.map((m) => (
+                  <span key={m} className="inline-block mr-2 px-2 py-0.5 rounded bg-gray-800 text-gray-200 text-xs">
+                    {MODEL_LABELS[m] ?? m}
+                  </span>
+                ))}
+                <span className="ml-2">— % campeón por equipo. Verde = más alto, Rojo = más bajo.</span>
+              </div>
+              <ComparisonTable teams={comparison.data.teams} models={comparison.data.models} />
+            </>
+          )}
         </>
       )}
     </div>

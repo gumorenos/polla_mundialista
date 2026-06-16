@@ -6,6 +6,7 @@ import type {
   JobRecord,
   ModelMetrics,
   Snapshot,
+  SimulationComparison,
   SimulationRequest,
   SimulationSummary,
 } from '../../types'
@@ -18,6 +19,15 @@ export function useSimulations(model = 'poisson') {
   return useQuery<SimulationSummary>({
     queryKey: ['simulations', 'latest', model],
     queryFn: () => api.get<SimulationSummary>(`/api/simulations/latest?model=${encodeURIComponent(model)}`),
+    retry: false,
+  })
+}
+
+export function useSimulationComparison() {
+  return useQuery<SimulationComparison>({
+    queryKey: ['simulations', 'comparison'],
+    queryFn: () => api.get<SimulationComparison>('/api/simulations/comparison'),
+    staleTime: 5 * 60 * 1000,
     retry: false,
   })
 }

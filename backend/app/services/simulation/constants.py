@@ -2,20 +2,20 @@
 
 from __future__ import annotations
 
-# WC2026 group composition (team IDs from teams.csv)
+# WC2026 group composition — official draw (Dec 2025), tournament start Jun 11 2026
 GROUPS_2026: dict[str, list[str]] = {
-    "A": ["USA", "PAN", "NGA", "AUS"],
-    "B": ["MEX", "JAM", "CIV", "IRN"],
-    "C": ["ARG", "ECU", "HUN", "CMR"],
-    "D": ["BRA", "COL", "MLI", "KOR"],
-    "E": ["FRA", "ESP", "SVN", "JOR"],
-    "F": ["ENG", "POR", "SEN", "UZB"],
-    "G": ["GER", "BEL", "EGY", "CAN"],
-    "H": ["CRO", "NED", "MAR", "ALB"],
-    "I": ["SRB", "TUR", "IRQ", "HON"],
-    "J": ["AUT", "DEN", "GHA", "NZL"],
-    "K": ["POL", "SCO", "VEN", "JPN"],
-    "L": ["RSA", "KSA", "URU", "SUI"],
+    "A": ["MEX", "RSA", "KOR", "CZE"],
+    "B": ["CAN", "BIH", "QAT", "SUI"],
+    "C": ["BRA", "MAR", "HAI", "SCO"],
+    "D": ["USA", "PAR", "AUS", "TUR"],
+    "E": ["GER", "CUW", "CIV", "ECU"],
+    "F": ["NED", "JPN", "SWE", "TUN"],
+    "G": ["BEL", "EGY", "IRN", "NZL"],
+    "H": ["ESP", "CPV", "KSA", "URU"],
+    "I": ["FRA", "SEN", "IRQ", "NOR"],
+    "J": ["ARG", "ALG", "AUT", "JOR"],
+    "K": ["POR", "COD", "UZB", "COL"],
+    "L": ["ENG", "CRO", "GHA", "PAN"],
 }
 
 # Round-of-32 bracket pairings expressed as position labels.

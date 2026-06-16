@@ -16,12 +16,57 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from datetime import datetime, timezone
+import threading
+import time
+from datetime import date, datetime, timezone
 from typing import Any
 
 from app.db.repositories.jobs import JobRepository
 
 logger = logging.getLogger(__name__)
+
+_STEP_TIMEOUT_S = 600  # log ERROR if a step takes longer than this
+
+
+class _StepTimer:
+    """Context manager that logs step start/end with timing and fires a warning if a step hangs."""
+
+    def __init__(self, name: str, step: int, total: int) -> None:
+        self._name = name
+        self._step = step
+        self._total = total
+        self._t0 = 0.0
+        self._timer: threading.Timer | None = None
+
+    def __enter__(self) -> "_StepTimer":
+        self._t0 = time.monotonic()
+        logger.info("[Pipeline] Paso %d/%d: %s — iniciando", self._step, self._total, self._name)
+        self._timer = threading.Timer(
+            _STEP_TIMEOUT_S,
+            lambda: logger.error(
+                "[Pipeline] Paso %d/%d: %s — sigue ejecutando después de %ds (posible cuelgue)",
+                self._step, self._total, self._name, _STEP_TIMEOUT_S,
+            ),
+        )
+        self._timer.daemon = True
+        self._timer.start()
+        return self
+
+    def __exit__(self, exc_type: type | None, exc_val: BaseException | None, exc_tb: object) -> bool:
+        if self._timer:
+            self._timer.cancel()
+        elapsed = time.monotonic() - self._t0
+        if exc_type is None:
+            logger.info(
+                "[Pipeline] Paso %d/%d: %s — completado en %.1fs",
+                self._step, self._total, self._name, elapsed,
+            )
+        else:
+            logger.error(
+                "[Pipeline] Paso %d/%d: %s — FALLÓ en %.1fs: %s",
+                self._step, self._total, self._name, elapsed, exc_val,
+            )
+        return False
 
 _BASE_MODELS = ["baseline", "elo", "poisson", "poisson_context"]
 _ALL_MODELS  = _BASE_MODELS + ["ml_calibrated"]
@@ -72,30 +117,35 @@ def run_full_refresh(
         job_repo.update_progress(job_id, p)
         db_conn.commit()
 
+    # Limit backtesting to the last 2 years to avoid long scans
+    backtesting_start_year = date.today().year - 2
+
     # ------------------------------------------------------------------
     # Step 1 — CSV ingestion (mandatory)
     # ------------------------------------------------------------------
-    teams    = load_teams_from_csv()
-    groups   = load_groups_from_csv()
-    fixtures = load_fixtures_from_csv()
-    ratings  = load_ratings_from_csv()
-    history  = load_historical_results_from_csv()
-    summary["ingest_csv"] = {
-        "teams": teams, "groups": groups,
-        "fixtures": fixtures, "ratings": ratings, "history": history,
-    }
-    if teams == 0:
-        raise RuntimeError(
-            "Full refresh aborted: teams.csv loaded 0 rows. "
-            "Check DATA_RAW_PATH and that data/raw/teams.csv exists."
-        )
+    with _StepTimer("CSV ingestion", 1, 9):
+        teams    = load_teams_from_csv()
+        groups   = load_groups_from_csv()
+        fixtures = load_fixtures_from_csv()
+        ratings  = load_ratings_from_csv()
+        history  = load_historical_results_from_csv()
+        summary["ingest_csv"] = {
+            "teams": teams, "groups": groups,
+            "fixtures": fixtures, "ratings": ratings, "history": history,
+        }
+        if teams == 0:
+            raise RuntimeError(
+                "Full refresh aborted: teams.csv loaded 0 rows. "
+                "Check DATA_RAW_PATH and that data/raw/teams.csv exists."
+            )
     _progress(0.05)
 
     # ------------------------------------------------------------------
     # Step 2 — ELO scraping (fault-tolerant)
     # ------------------------------------------------------------------
     try:
-        summary["elo_scrape"] = {"records": ingest_elo_ratings()}
+        with _StepTimer("ELO scraping", 2, 9):
+            summary["elo_scrape"] = {"records": ingest_elo_ratings()}
     except Exception as exc:
         logger.warning("ELO scraping failed (non-fatal): %s", exc)
         summary["elo_scrape"] = {"status": "failed", "error": str(exc)}
@@ -105,8 +155,9 @@ def run_full_refresh(
     # Step 3 — API Football (fault-tolerant)
     # ------------------------------------------------------------------
     try:
-        from app.services.ingestion.api_football import ingest_api_fixtures
-        summary["api_football"] = {"records": ingest_api_fixtures(conn=db_conn)}
+        with _StepTimer("API Football", 3, 9):
+            from app.services.ingestion.api_football import ingest_api_fixtures
+            summary["api_football"] = {"records": ingest_api_fixtures(conn=db_conn)}
     except Exception as exc:
         logger.warning("API Football failed (non-fatal): %s", exc)
         summary["api_football"] = {"status": "failed", "error": str(exc)}
@@ -115,31 +166,40 @@ def run_full_refresh(
     # ------------------------------------------------------------------
     # Step 4 — Team strengths (mandatory)
     # ------------------------------------------------------------------
-    strengths = calculate_team_strengths(db_conn)
-    summary["features"] = {"n_teams": len(strengths)}
+    with _StepTimer("Team strengths", 4, 9):
+        strengths = calculate_team_strengths(db_conn)
+        summary["features"] = {"n_teams": len(strengths)}
     _progress(0.35)
 
     # ------------------------------------------------------------------
     # Step 5 — News / injuries (fault-tolerant)
     # ------------------------------------------------------------------
     try:
-        summary["news"] = run_news_analysis(db_conn)
+        with _StepTimer("News analysis", 5, 9):
+            summary["news"] = run_news_analysis(db_conn)
     except Exception as exc:
         logger.warning("News analysis failed (non-fatal): %s", exc)
         summary["news"] = {"status": "failed", "error": str(exc)}
     _progress(0.45)
 
     # ------------------------------------------------------------------
-    # Step 6 — Backtesting (mandatory)
+    # Step 6 — Backtesting (mandatory) — últimos 2 años, máx 500 partidos
     # ------------------------------------------------------------------
-    summary["backtesting"] = run_backtesting(db_conn, models=_ALL_MODELS)
+    with _StepTimer("Backtesting", 6, 9):
+        summary["backtesting"] = run_backtesting(
+            db_conn,
+            models=_ALL_MODELS,
+            start_year=backtesting_start_year,
+            max_matches=500,
+        )
     _progress(0.60)
 
     # ------------------------------------------------------------------
     # Step 7 — ML training (fault-tolerant)
     # ------------------------------------------------------------------
     try:
-        summary["ml_training"] = train_ml_model(db_conn)
+        with _StepTimer("ML training", 7, 9):
+            summary["ml_training"] = train_ml_model(db_conn)
     except Exception as exc:
         logger.warning("ML training failed (non-fatal): %s", exc)
         summary["ml_training"] = {"status": "failed", "error": str(exc)}
@@ -149,36 +209,38 @@ def run_full_refresh(
     # Step 8 — Monte Carlo for all models (mandatory)
     # ------------------------------------------------------------------
     sim_run_ids: dict[str, str] = {}
-    for model_name in _ALL_MODELS:
-        try:
-            run_id = run_monte_carlo(
-                model_name=model_name,
-                conn=db_conn,
-                iterations=settings.MONTECARLO_ITERATIONS,
-                seed=settings.MONTECARLO_SEED,
-            )
-            sim_run_ids[model_name] = run_id
-        except Exception as exc:
-            logger.warning("Simulation for %s failed: %s", model_name, exc)
-            sim_run_ids[model_name] = f"failed:{exc}"
+    with _StepTimer("Monte Carlo simulations", 8, 9):
+        for model_name in _ALL_MODELS:
+            try:
+                run_id = run_monte_carlo(
+                    model_name=model_name,
+                    conn=db_conn,
+                    iterations=settings.MONTECARLO_ITERATIONS,
+                    seed=settings.MONTECARLO_SEED,
+                )
+                sim_run_ids[model_name] = run_id
+            except Exception as exc:
+                logger.warning("Simulation for %s failed: %s", model_name, exc)
+                sim_run_ids[model_name] = f"failed:{exc}"
     summary["simulations"] = sim_run_ids
     _progress(0.95)
 
     # ------------------------------------------------------------------
     # Step 9 — Snapshot (mandatory)
     # ------------------------------------------------------------------
-    best_run_id = next(
-        (rid for rid in sim_run_ids.values() if not rid.startswith("failed:")),
-        None,
-    )
-    snap_id = SimulationRepository(db_conn).create_snapshot({
-        "label":             f"full-refresh-{started[:10]}",
-        "description":       "Auto-snapshot after full refresh",
-        "trigger":           "full_refresh",
-        "simulation_run_id": best_run_id,
-    })
-    db_conn.commit()
-    summary["snapshot"] = {"id": snap_id}
+    with _StepTimer("Snapshot", 9, 9):
+        best_run_id = next(
+            (rid for rid in sim_run_ids.values() if not rid.startswith("failed:")),
+            None,
+        )
+        snap_id = SimulationRepository(db_conn).create_snapshot({
+            "label":             f"full-refresh-{started[:10]}",
+            "description":       "Auto-snapshot after full refresh",
+            "trigger":           "full_refresh",
+            "simulation_run_id": best_run_id,
+        })
+        db_conn.commit()
+        summary["snapshot"] = {"id": snap_id}
     _progress(1.0)
 
     logger.info("Full refresh complete: %s", {k: type(v).__name__ for k, v in summary.items()})

@@ -103,6 +103,13 @@ else
   log_ok "OPENROUTER_API_KEY configurada"
 fi
 
+FOOTBALL_DATA_API_KEY="$(get_env FOOTBALL_DATA_API_KEY)"
+if is_placeholder "$FOOTBALL_DATA_API_KEY"; then
+  log_warn "FOOTBALL_DATA_API_KEY no configurada — backup football-data.org deshabilitado (opcional)"
+else
+  log_ok "FOOTBALL_DATA_API_KEY configurada (backup football-data.org activo)"
+fi
+
 echo ""
 echo "--- Infraestructura ---"
 

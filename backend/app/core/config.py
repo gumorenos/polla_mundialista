@@ -73,6 +73,11 @@ class Settings(BaseSettings):
     API_FOOTBALL_RAPIDAPI: bool = False
 
     # ------------------------------------------------------------------
+    # football-data.org (backup de API Football)
+    # ------------------------------------------------------------------
+    FOOTBALL_DATA_API_KEY: str = ""
+
+    # ------------------------------------------------------------------
     # OpenRouter / LLM
     # ------------------------------------------------------------------
     OPENROUTER_API_KEY: str = ""

@@ -111,6 +111,21 @@ export interface SimulationRequest {
   iterations?: number
 }
 
+export interface SimulationComparisonTeam {
+  team_id: string
+  team_name: string
+  baseline: number | null
+  elo: number | null
+  poisson: number | null
+  poisson_context: number | null
+  ml_calibrated: number | null
+}
+
+export interface SimulationComparison {
+  models: string[]
+  teams: SimulationComparisonTeam[]
+}
+
 export interface EnqueueResponse {
   job_id: string
   rq_job_id: string

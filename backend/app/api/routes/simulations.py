@@ -45,7 +45,7 @@ def enqueue_simulation(request: Request, body: RunRequest) -> dict[str, Any]:
     with db_transaction() as conn:
         job_repo = JobRepository(conn)
         job_id = job_repo.create({
-            "job_type": "simulation",
+            "job_type": f"simulation_{body.model_name}",
             "status":   "enqueued",
             "progress": 0.0,
         })
@@ -73,6 +73,75 @@ def enqueue_simulation(request: Request, body: RunRequest) -> dict[str, Any]:
         "model_name": body.model_name,
         "iterations": iterations,
         "status":     "enqueued",
+    }
+
+
+# ---------------------------------------------------------------------------
+# GET /api/simulations/comparison
+# ---------------------------------------------------------------------------
+
+_COMPARISON_MODELS = ["baseline", "elo", "poisson", "poisson_context", "ml_calibrated"]
+
+
+@router.get("/comparison")
+def get_comparison() -> dict[str, Any]:
+    """Return win_tournament % for each team across all models (latest completed run per model).
+
+    Only includes teams that appear in at least one completed simulation.
+    Missing model data for a team is returned as null.
+    """
+    with db_transaction() as conn:
+        rows = conn.execute(
+            """
+            WITH latest_runs AS (
+                SELECT model_name, MAX(finished_at) AS max_finished
+                FROM simulation_runs
+                WHERE status = 'completed'
+                GROUP BY model_name
+            ),
+            run_ids AS (
+                SELECT sr.id, sr.model_name
+                FROM simulation_runs sr
+                JOIN latest_runs lr
+                    ON sr.model_name = lr.model_name
+                    AND sr.finished_at = lr.max_finished
+                WHERE sr.status = 'completed'
+            )
+            SELECT
+                str.team_id,
+                t.name AS team_name,
+                ri.model_name,
+                str.win_tournament
+            FROM simulation_team_results str
+            JOIN run_ids ri ON str.simulation_run_id = ri.id
+            JOIN teams t ON str.team_id = t.id
+            ORDER BY str.team_id, ri.model_name
+            """
+        ).fetchall()
+
+    # Pivot into {team_id: {model_name: win_tournament, ...}}
+    teams_map: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        tid = row["team_id"]
+        if tid not in teams_map:
+            teams_map[tid] = {"team_id": tid, "team_name": row["team_name"]}
+        teams_map[tid][row["model_name"]] = round(float(row["win_tournament"]), 4)
+
+    # Fill missing models with None
+    for entry in teams_map.values():
+        for m in _COMPARISON_MODELS:
+            entry.setdefault(m, None)
+
+    # Sort by average win_tournament across present models (desc)
+    def _avg(entry: dict[str, Any]) -> float:
+        vals = [entry[m] for m in _COMPARISON_MODELS if entry[m] is not None]
+        return sum(vals) / len(vals) if vals else 0.0
+
+    teams_sorted = sorted(teams_map.values(), key=_avg, reverse=True)
+
+    return {
+        "models": _COMPARISON_MODELS,
+        "teams": teams_sorted,
     }
 
 

@@ -48,6 +48,7 @@ def run_backtesting(
     models: list[str] | None = None,
     window_months: int = 3,
     start_year: int | None = None,
+    max_matches: int | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Evaluate all models on historical results and persist metrics.
 
@@ -58,9 +59,9 @@ def run_backtesting(
     begin_year  = start_year or _DEFAULT_START_YEAR
     start_iso   = f"{begin_year}-01-01"
 
-    # Load all historical results in one query
+    limit_clause = f"LIMIT {max_matches}" if max_matches else ""
     rows = db_conn.execute(
-        """
+        f"""
         SELECT home_team_id, away_team_id, home_goals, away_goals,
                match_date, outcome
         FROM results
@@ -68,6 +69,7 @@ def run_backtesting(
           AND home_goals IS NOT NULL
           AND away_goals IS NOT NULL
         ORDER BY match_date ASC
+        {limit_clause}
         """,
         (start_iso,),
     ).fetchall()
@@ -76,7 +78,10 @@ def run_backtesting(
         logger.info("Backtesting: no historical results found from %s", start_iso)
         return {}
 
-    logger.info("Backtesting: %d matches from %s, models=%s", len(rows), start_iso, model_names)
+    logger.info(
+        "Backtesting: %d matches from %s (max_matches=%s), models=%s",
+        len(rows), start_iso, max_matches, model_names,
+    )
 
     # Build windows list from earliest match date to latest
     first_date = date.fromisoformat(str(rows[0]["match_date"])[:10])

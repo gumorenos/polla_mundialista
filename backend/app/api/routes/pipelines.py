@@ -106,7 +106,7 @@ def enqueue_all_models(request: Request) -> dict[str, Any]:
     for model_name in _ALL_MODELS:
         with db_transaction() as conn:
             job_id = JobRepository(conn).create({
-                "job_type": "simulation",
+                "job_type": f"simulation_{model_name}",
                 "status": "enqueued",
                 "progress": 0.0,
             })

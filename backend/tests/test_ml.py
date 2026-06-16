@@ -92,12 +92,17 @@ def db_ml() -> sqlite3.Connection:
     _insert_strength(conn, "SMR", 0.3, 2.5)
     _insert_strength(conn, "ARG", 1.7, 0.7)
 
-    # Historical results for training
+    # Historical results for training (≥50 to satisfy _MIN_TRAINING_SAMPLES)
     outcomes = [
         (2, 0), (3, 0), (1, 0), (2, 1), (1, 1), (0, 0),
         (0, 1), (1, 2), (0, 2), (3, 1), (2, 2), (1, 3),
         (4, 0), (0, 0), (2, 0), (1, 0), (0, 3), (1, 1),
         (2, 1), (3, 2), (1, 0), (0, 1), (2, 0), (1, 2),
+        (1, 0), (2, 1), (3, 0), (0, 2), (1, 1), (2, 0),
+        (0, 1), (1, 0), (3, 1), (2, 2), (0, 0), (1, 3),
+        (2, 0), (1, 1), (0, 1), (3, 0), (1, 2), (2, 1),
+        (0, 0), (1, 0), (2, 3), (1, 1), (3, 2), (0, 1),
+        (2, 0), (1, 0), (0, 2), (3, 1), (1, 1), (2, 0),
     ]
     for i, (hg, ag) in enumerate(outcomes):
         home = "BRA" if i % 2 == 0 else "ARG"

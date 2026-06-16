@@ -30,7 +30,7 @@ from app.services.ml.feature_builder import (
 
 logger = logging.getLogger(__name__)
 
-_MIN_TRAINING_SAMPLES = 20
+_MIN_TRAINING_SAMPLES = 50
 
 
 # ---------------------------------------------------------------------------

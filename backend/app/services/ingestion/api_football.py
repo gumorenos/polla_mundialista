@@ -169,10 +169,20 @@ def ingest_api_fixtures(
     source = "api_football"
 
     if not fixtures:
-        logger.warning("API-Football returned 0 results — falling back to CSV historical data")
+        logger.warning("API-Football returned 0 results — trying football-data.org backup")
+        try:
+            from app.services.ingestion.football_data_org import ingest_football_data_fixtures
+            n = ingest_football_data_fixtures(conn=conn)
+            if n > 0:
+                logger.info("football-data.org backup: loaded %d results (%.2fs)", n, time.perf_counter() - t0)
+                return n
+        except Exception as exc:
+            logger.warning("football-data.org backup failed: %s", exc)
+
+        logger.warning("All API sources failed — falling back to CSV historical data")
         from app.services.ingestion.csv_loader import load_historical_results_from_csv
         n = load_historical_results_from_csv(conn=conn)
-        logger.info("API fallback: loaded %d results from CSV (%.2fs)", n, time.perf_counter() - t0)
+        logger.info("CSV fallback: loaded %d results (%.2fs)", n, time.perf_counter() - t0)
         return n
 
     def _persist(c: sqlite3.Connection) -> int:

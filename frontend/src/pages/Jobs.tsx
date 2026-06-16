@@ -5,6 +5,21 @@ import type { JobRecord } from '../types'
 
 const CANCELLABLE: JobRecord['status'][] = ['enqueued', 'started', 'running']
 
+const JOB_LABELS: Record<string, string> = {
+  full_refresh: 'Full Refresh',
+  daily_update: 'Daily Update',
+  news: 'Noticias',
+  simulation_baseline: 'Simulación — Baseline',
+  simulation_elo: 'Simulación — ELO',
+  simulation_poisson: 'Simulación — Poisson',
+  simulation_poisson_context: 'Simulación — Poisson+Ctx',
+  simulation_ml_calibrated: 'Simulación — ML Calibrado',
+}
+
+function formatJobType(jobType: string): string {
+  return JOB_LABELS[jobType] ?? jobType
+}
+
 // Thresholds for stuck detection
 const STUCK_HEARTBEAT_STALE_MS = 60_000   // heartbeat older than 60 s → stuck
 const STUCK_NO_HEARTBEAT_MS    = 30 * 60_000  // no heartbeat + running >30 min → stuck
@@ -152,7 +167,7 @@ export default function Jobs() {
               )}
               {data.map((job) => (
                 <tr key={job.id} className="border-t border-gray-800 hover:bg-gray-900">
-                  <td className="px-4 py-2 text-gray-200">{job.job_type}</td>
+                  <td className="px-4 py-2 text-gray-200">{formatJobType(job.job_type)}</td>
                   <td className="px-4 py-2">
                     <StatusIndicator job={job} now={now} />
                   </td>
