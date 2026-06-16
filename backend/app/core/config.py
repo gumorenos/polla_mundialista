@@ -171,7 +171,9 @@ class Settings(BaseSettings):
                     "ADMIN_TOKEN must be set to a non-placeholder value in production. "
                     "Set ENVIRONMENT=development to bypass this check."
                 )
-            if self.ADMIN_PASSWORD in _unsafe:
+            # ADMIN_PASSWORD is only needed by the API process (login endpoint).
+            # Scheduler/worker run with SCHEDULER_ENABLED=true and don't serve auth.
+            if not self.SCHEDULER_ENABLED and self.ADMIN_PASSWORD in _unsafe:
                 raise ValueError(
                     "ADMIN_PASSWORD must be set in production. "
                     "Use a memorable passphrase (min 8 chars)."

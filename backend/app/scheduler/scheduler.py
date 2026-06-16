@@ -60,3 +60,12 @@ def stop_scheduler() -> None:
     if s.running:
         s.shutdown(wait=False)
         logger.info("Scheduler stopped")
+
+
+if __name__ == "__main__":
+    import time
+
+    start_scheduler()
+    logger.info("Scheduler started, entering main loop")
+    while True:
+        time.sleep(60)
