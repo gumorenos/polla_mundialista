@@ -109,9 +109,9 @@ def list_models() -> list[dict[str, Any]]:
 # GET /api/ml/history  — last N trained models with metrics
 # ---------------------------------------------------------------------------
 
-@router.get("/history")
+@router.get("/history", dependencies=[Depends(require_admin)])
 def ml_history(limit: int = 10) -> list[dict[str, Any]]:
-    """Return the last *limit* trained ML models ordered by recency."""
+    """Return the last *limit* trained ML models ordered by recency (admin only)."""
     with db_transaction() as conn:
         rows = conn.execute(
             """
@@ -139,10 +139,10 @@ def predict_match(
     is_neutral: bool = True,
 ) -> dict[str, Any]:
     """Return ML-calibrated prediction for a single match."""
-    from app.services.prediction.ml_calibrated import MLCalibratedModel
-
+    
+    from app.services.prediction.ml_calibrated import get_cached_model
     with db_transaction() as conn:
-        model = MLCalibratedModel(conn)
+        model = get_cached_model(conn)
         result = model.predict_match(
             home_team_id, away_team_id,
             context={"is_neutral": is_neutral},

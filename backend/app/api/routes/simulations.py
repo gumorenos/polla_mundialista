@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -23,9 +23,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/simulations", tags=["simulations"])
 
 
+ModelName = Literal["baseline", "elo", "poisson", "poisson_context", "ml_calibrated"]
+
+
 class RunRequest(BaseModel):
-    model_name: str = "poisson"
-    iterations: int = Field(default=None, gt=0, le=100_000)
+    model_name: ModelName = "poisson"
+    iterations: int = Field(default=None, ge=1_000, le=100_000)
 
 
 # ---------------------------------------------------------------------------

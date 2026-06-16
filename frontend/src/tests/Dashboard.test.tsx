@@ -25,6 +25,7 @@ vi.mock('../api/hooks', () => ({
   }),
   useTriggerFullRefresh: () => ({ mutate: vi.fn(), isPending: false }),
   useTriggerDailyUpdate: () => ({ mutate: vi.fn(), isPending: false }),
+  useAuthStatus: () => ({ data: { authenticated: true }, isLoading: false, error: null }),
 }))
 
 describe('Dashboard', () => {

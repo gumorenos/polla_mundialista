@@ -9,6 +9,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 from app.api.routes.admin import router as admin_router
+from app.api.routes.auth import router as auth_router
 from app.api.routes.evaluations import router as evaluations_router
 from app.api.routes.health import router as health_router
 from app.api.routes.jobs import router as jobs_router
@@ -47,13 +48,14 @@ async def lifespan(app: FastAPI):
     logger.info("Oráculo Mundial 2026 — shutdown")
 
 
+_is_prod = settings.ENVIRONMENT == "production"
 app = FastAPI(
     title="Oráculo Mundial 2026",
     version="0.1.0",
     lifespan=lifespan,
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
-    openapi_url="/api/openapi.json",
+    docs_url=None if _is_prod else "/api/docs",
+    redoc_url=None if _is_prod else "/api/redoc",
+    openapi_url=None if _is_prod else "/api/openapi.json",
 )
 
 app.state.limiter = limiter
@@ -68,6 +70,7 @@ app.add_middleware(
 )
 
 app.include_router(health_router)
+app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(simulations_router)
 app.include_router(snapshots_router)

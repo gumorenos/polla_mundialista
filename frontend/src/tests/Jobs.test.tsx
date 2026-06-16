@@ -13,6 +13,7 @@ const BASE_JOB = {
 }
 
 vi.mock('../api/hooks', () => ({
+  useAuthStatus: () => ({ data: { authenticated: true }, isLoading: false, error: null }),
   useJobs: () => ({
     data: [
       {

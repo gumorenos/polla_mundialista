@@ -19,6 +19,7 @@ services:
     env_file: .env
     environment:
       REDIS_URL: redis://redis:6379/0
+      SCHEDULER_ENABLED: "false"  # scheduler runs in its own service
     depends_on:
       redis:
         condition: service_healthy

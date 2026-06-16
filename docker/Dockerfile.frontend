@@ -7,10 +7,6 @@ RUN npm install --legacy-peer-deps
 
 COPY . .
 
-# Inject admin token at build time (must match backend ADMIN_TOKEN)
-ARG VITE_ADMIN_TOKEN
-ENV VITE_ADMIN_TOKEN=${VITE_ADMIN_TOKEN}
-
 RUN npm run build
 
 # -----------------------------------------------------------------------

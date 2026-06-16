@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useJobs, useCancelJob } from '../api/hooks'
-import { hasAdminToken } from '../api/client'
+import { useAuth } from '../hooks/useAuth'
 import type { JobRecord } from '../types'
 
 const CANCELLABLE: JobRecord['status'][] = ['enqueued', 'started', 'running']
@@ -98,6 +98,8 @@ function jobDuration(job: JobRecord, now: number): string {
 export default function Jobs() {
   const { data, isLoading, error } = useJobs()
   const cancelJob = useCancelJob()
+  const { data: authData } = useAuth()
+  const isAdmin = authData?.authenticated === true
   const [now, setNow] = useState(() => Date.now())
 
   // Tick every second to update elapsed time and stuck detection
@@ -188,7 +190,7 @@ export default function Jobs() {
                     )}
                   </td>
                   <td className="px-4 py-2">
-                    {hasAdminToken && CANCELLABLE.includes(job.status) && (
+                    {isAdmin && CANCELLABLE.includes(job.status) && (
                       <button
                         onClick={() => handleCancel(job)}
                         disabled={cancelJob.isPending}

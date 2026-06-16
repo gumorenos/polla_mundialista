@@ -11,12 +11,67 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import threading
+from pathlib import Path
 
+from app.core.config import settings
 from app.services.prediction.base import PredictionModel
 
 logger = logging.getLogger(__name__)
 
 _FALLBACK_MODEL_NAME = "poisson"
+
+# ---------------------------------------------------------------------------
+# Module-level model cache — avoids joblib.load on every request
+# ---------------------------------------------------------------------------
+_model_cache: dict = {}
+_cache_lock = threading.Lock()
+
+
+def _safe_load_model(model_path: str):
+    """Load a model file only if it is inside the allowed directory.
+
+    Prevents path-traversal attacks where a tampered DB row points to an
+    arbitrary file on the filesystem.
+    """
+    path = Path(model_path).resolve()
+    allowed_dir = Path(settings.ML_MODELS_PATH).resolve()
+
+    if not str(path).startswith(str(allowed_dir) + "/") and path != allowed_dir:
+        raise ValueError(
+            f"Model path '{path}' is outside the allowed directory '{allowed_dir}'"
+        )
+    if not path.exists():
+        raise FileNotFoundError(f"Model file not found: {path}")
+    if path.suffix not in (".pkl", ".joblib"):
+        raise ValueError(f"Disallowed model file extension: {path.suffix}")
+
+    import joblib
+    return joblib.load(path)
+
+
+def get_cached_model(conn: sqlite3.Connection) -> "MLCalibratedModel":
+    """Return the active model from cache if the model_path has not changed.
+
+    Thread-safe for concurrent FastAPI workers.
+    """
+    from app.db.repositories.ml import MLRepository
+
+    try:
+        row = MLRepository(conn).get_best_model()
+    except Exception as exc:
+        logger.warning("get_cached_model: could not query active model: %s", exc)
+        return MLCalibratedModel(conn)
+
+    current_path = row.get("model_path") if row else None
+
+    with _cache_lock:
+        cached = _model_cache.get("instance")
+        if cached is not None and cached.model_path == current_path:
+            return cached
+        instance = MLCalibratedModel(conn)
+        _model_cache["instance"] = instance
+        return instance
 
 
 class MLCalibratedModel(PredictionModel):
@@ -27,6 +82,7 @@ class MLCalibratedModel(PredictionModel):
         self._conn = conn
         self._clf = None
         self._model_meta: dict | None = None
+        self.model_path: str | None = None  # exposed for cache invalidation
         self._load_model()
 
     # ------------------------------------------------------------------
@@ -55,7 +111,6 @@ class MLCalibratedModel(PredictionModel):
             from app.services.ml.feature_builder import FEATURE_NAMES as _FN
             X = pd.DataFrame([features], columns=_FN)
             proba = self._clf.predict_proba(X)[0]  # shape (3,)
-            # Ensure probabilities sum to 1.0 (floating-point safety)
             total = float(sum(proba))
             if total > 0:
                 proba = [float(p) / total for p in proba]
@@ -106,9 +161,9 @@ class MLCalibratedModel(PredictionModel):
             return
 
         try:
-            import joblib
-            self._clf = joblib.load(model_path)
+            self._clf = _safe_load_model(model_path)
             self._model_meta = dict(row)
+            self.model_path = model_path
             logger.info(
                 "MLCalibratedModel: loaded %s from %s (brier=%.4f)",
                 row.get("algorithm"), model_path, row.get("brier_score") or 0,
@@ -124,9 +179,7 @@ class MLCalibratedModel(PredictionModel):
     ) -> dict:
         from app.services.prediction.poisson_model import PoissonModel
         result = PoissonModel(self._conn).predict_match(home_team_id, away_team_id, context)
-        result["explanation"] = (
-            "[fallback-poisson] " + result.get("explanation", "")
-        )
+        result["explanation"] = "[fallback-poisson] " + result.get("explanation", "")
         return result
 
 
@@ -140,7 +193,6 @@ def _feature_names() -> list[str]:
 
 
 def _rough_goals(hw: float, draw: float, aw: float, home: bool) -> float:
-    """Rough expected goals from outcome probabilities."""
     if home:
         return round(1.5 * (hw + 0.5 * draw), 3)
     return round(1.5 * (aw + 0.5 * draw), 3)

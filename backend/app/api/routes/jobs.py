@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Query, Request, status
 
 import redis as redis_lib
 from rq import cancel_job as rq_cancel_job
@@ -20,17 +20,48 @@ from app.db.repositories.jobs import JobRepository
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
+_SENSITIVE_FIELDS = {"error_message", "result_ref", "rq_job_id"}
+
+
+def _check_admin(x_admin_token: str, admin_session: str) -> bool:
+    """Return True if the request carries valid admin credentials (no exception)."""
+    if not settings.ADMIN_TOKEN:
+        return False
+    import secrets as _sec
+    if x_admin_token and _sec.compare_digest(x_admin_token, settings.ADMIN_TOKEN):
+        return True
+    if admin_session:
+        from app.api.routes.auth import _active_sessions, _hash_token
+        if _hash_token(admin_session) in _active_sessions:
+            return True
+    return False
+
+
+def _sanitize(job: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in job.items() if k not in _SENSITIVE_FIELDS}
+
 
 @router.get("")
-def list_jobs(limit: int = Query(default=50, ge=1, le=200)) -> list[dict[str, Any]]:
-    """Return the most recent job records."""
+def list_jobs(
+    limit: int = Query(default=50, ge=1, le=200),
+    x_admin_token: str = Header(default=""),
+    admin_session: str = Cookie(default=""),
+) -> list[dict[str, Any]]:
+    """Return recent job records. Admin callers receive full details; public callers get sanitized data."""
+    is_admin = _check_admin(x_admin_token, admin_session)
     with db_transaction() as conn:
-        return JobRepository(conn).list_recent(limit)
+        jobs = JobRepository(conn).list_recent(limit)
+    return jobs if is_admin else [_sanitize(j) for j in jobs]
 
 
 @router.get("/{job_id}")
-def get_job(job_id: str) -> dict[str, Any]:
-    """Return a single job record by ID."""
+def get_job(
+    job_id: str,
+    x_admin_token: str = Header(default=""),
+    admin_session: str = Cookie(default=""),
+) -> dict[str, Any]:
+    """Return a single job. Admin callers receive full details; public callers get sanitized data."""
+    is_admin = _check_admin(x_admin_token, admin_session)
     with db_transaction() as conn:
         job = JobRepository(conn).get_by_id(job_id)
     if not job:
@@ -38,7 +69,7 @@ def get_job(job_id: str) -> dict[str, Any]:
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Job '{job_id}' not found",
         )
-    return job
+    return job if is_admin else _sanitize(job)
 
 
 @router.delete("/{job_id}", dependencies=[Depends(require_admin)])

@@ -1,17 +1,48 @@
-import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import Layout from './components/Layout'
 import Calibration from './pages/Calibration'
 import Dashboard from './pages/Dashboard'
 import Jobs from './pages/Jobs'
+import Login from './pages/Login'
 import Models from './pages/Models'
 import Simulations from './pages/Simulations'
 import Snapshots from './pages/Snapshots'
+import { useAuth } from './hooks/useAuth'
+
+function RequireAuth({ children }: { children: React.ReactNode }) {
+  const { data, isLoading, isError } = useAuth()
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-950 text-gray-400">
+        Cargando…
+      </div>
+    )
+  }
+  if (isError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-950 text-red-400">
+        No se puede conectar con el servidor.
+      </div>
+    )
+  }
+  if (data?.authenticated === false) {
+    return <Navigate to="/login" replace />
+  }
+  return <>{children}</>
+}
 
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route element={<Layout />}>
+        <Route path="/login" element={<Login />} />
+        <Route
+          element={
+            <RequireAuth>
+              <Layout />
+            </RequireAuth>
+          }
+        >
           <Route index element={<Dashboard />} />
           <Route path="models" element={<Models />} />
           <Route path="simulations" element={<Simulations />} />

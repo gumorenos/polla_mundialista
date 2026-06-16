@@ -4,7 +4,7 @@ import {
   useTriggerDailyUpdate,
   useTriggerFullRefresh,
 } from '../api/hooks'
-import { hasAdminToken } from '../api/client'
+import { useAuth } from '../hooks/useAuth'
 import type { ModelMetrics, TeamResult } from '../types'
 
 function MetricCard({ label, value }: { label: string; value: string | number }) {
@@ -26,6 +26,7 @@ export default function Dashboard() {
   const { data: sim } = useSimulations('poisson')
   const fullRefresh = useTriggerFullRefresh()
   const dailyUpdate = useTriggerDailyUpdate()
+  const { data: authData } = useAuth()
 
   const bestModel: ModelMetrics | undefined = [...(metrics ?? [])].sort(
     (a, b) => (a.brier_score ?? 1) - (b.brier_score ?? 1),
@@ -35,7 +36,7 @@ export default function Dashboard() {
     .sort((a, b) => b.win_tournament - a.win_tournament)
     .slice(0, 5)
 
-  const noToken = !hasAdminToken
+  const noToken = authData?.authenticated !== true
 
   return (
     <div className="p-8 space-y-8">
@@ -47,14 +48,14 @@ export default function Dashboard() {
         <div className="flex flex-col items-end gap-2">
           {noToken && (
             <p className="text-xs text-yellow-500">
-              VITE_ADMIN_TOKEN no configurado — acciones admin deshabilitadas
+              Sesión no activa — acciones admin deshabilitadas
             </p>
           )}
           <div className="flex gap-3">
             <button
               onClick={() => dailyUpdate.mutate()}
               disabled={dailyUpdate.isPending || noToken}
-              title={noToken ? 'Admin token no configurado' : undefined}
+              title={noToken ? 'Inicia sesión para acciones admin' : undefined}
               className="rounded bg-gray-700 px-4 py-2 text-sm text-gray-200 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {dailyUpdate.isPending ? 'Encolando…' : 'Daily Update'}
@@ -62,7 +63,7 @@ export default function Dashboard() {
             <button
               onClick={() => fullRefresh.mutate()}
               disabled={fullRefresh.isPending || noToken}
-              title={noToken ? 'Admin token no configurado' : undefined}
+              title={noToken ? 'Inicia sesión para acciones admin' : undefined}
               className="rounded bg-blue-700 px-4 py-2 text-sm text-white hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {fullRefresh.isPending ? 'Encolando…' : 'Full Refresh'}

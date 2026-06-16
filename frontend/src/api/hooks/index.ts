@@ -17,7 +17,7 @@ import type {
 export function useSimulations(model = 'poisson') {
   return useQuery<SimulationSummary>({
     queryKey: ['simulations', 'latest', model],
-    queryFn: () => api.get<SimulationSummary>(`/api/simulations/latest?model=${model}`),
+    queryFn: () => api.get<SimulationSummary>(`/api/simulations/latest?model=${encodeURIComponent(model)}`),
     retry: false,
   })
 }
@@ -32,7 +32,7 @@ export function useModelsComparison() {
 export function useCalibration(model: string) {
   return useQuery<CalibrationBin[]>({
     queryKey: ['evaluations', 'calibration', model],
-    queryFn: () => api.get<CalibrationBin[]>(`/api/evaluations/calibration?model=${model}`),
+    queryFn: () => api.get<CalibrationBin[]>(`/api/evaluations/calibration?model=${encodeURIComponent(model)}`),
     enabled: !!model,
     retry: false,
   })
@@ -70,6 +70,15 @@ export function useTeamStats(model = 'poisson') {
   return useSimulations(model)
 }
 
+export function useAuthStatus() {
+  return useQuery<{ authenticated: boolean }>({
+    queryKey: ['auth-status'],
+    queryFn: () => api.get<{ authenticated: boolean }>('/api/auth/status'),
+    retry: false,
+    staleTime: 60_000,
+  })
+}
+
 // ---------------------------------------------------------------------------
 // Mutation hooks
 // ---------------------------------------------------------------------------
@@ -77,8 +86,7 @@ export function useTeamStats(model = 'poisson') {
 export function useRunSimulation() {
   const qc = useQueryClient()
   return useMutation<EnqueueResponse, Error, SimulationRequest>({
-    mutationFn: (body) =>
-      api.post<EnqueueResponse>('/api/simulations/run', body, true),
+    mutationFn: (body) => api.post<EnqueueResponse>('/api/simulations/run', body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['jobs'] }),
   })
 }
@@ -86,8 +94,7 @@ export function useRunSimulation() {
 export function useTriggerFullRefresh() {
   const qc = useQueryClient()
   return useMutation<EnqueueResponse, Error, void>({
-    mutationFn: () =>
-      api.post<EnqueueResponse>('/api/pipelines/full-refresh', {}, true),
+    mutationFn: () => api.post<EnqueueResponse>('/api/pipelines/full-refresh', {}),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['jobs'] }),
   })
 }
@@ -95,8 +102,7 @@ export function useTriggerFullRefresh() {
 export function useTriggerDailyUpdate() {
   const qc = useQueryClient()
   return useMutation<EnqueueResponse, Error, void>({
-    mutationFn: () =>
-      api.post<EnqueueResponse>('/api/pipelines/daily-update', {}, true),
+    mutationFn: () => api.post<EnqueueResponse>('/api/pipelines/daily-update', {}),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['jobs'] }),
   })
 }
@@ -104,8 +110,7 @@ export function useTriggerDailyUpdate() {
 export function useCreateSnapshot(runId: string) {
   const qc = useQueryClient()
   return useMutation<EnqueueResponse, Error, { label: string; description?: string }>({
-    mutationFn: (body) =>
-      api.post<EnqueueResponse>(`/api/snapshots/${runId}`, body, true),
+    mutationFn: (body) => api.post<EnqueueResponse>(`/api/snapshots/${runId}`, body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['snapshots'] }),
   })
 }
@@ -113,8 +118,7 @@ export function useCreateSnapshot(runId: string) {
 export function useTrainML() {
   const qc = useQueryClient()
   return useMutation<EnqueueResponse, Error, { algorithm?: string; train_start_year?: number; validation_split?: number }>({
-    mutationFn: (body) =>
-      api.post<EnqueueResponse>('/api/ml/train', body, true),
+    mutationFn: (body) => api.post<EnqueueResponse>('/api/ml/train', body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['jobs'] }),
   })
 }
@@ -122,7 +126,7 @@ export function useTrainML() {
 export function useCancelJob() {
   const qc = useQueryClient()
   return useMutation<{ cancelled: boolean; job_id: string }, Error, string>({
-    mutationFn: (jobId) => api.delete(`/api/jobs/${jobId}`, true),
+    mutationFn: (jobId) => api.delete(`/api/jobs/${jobId}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['jobs'] }),
   })
 }

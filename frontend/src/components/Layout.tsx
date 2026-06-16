@@ -1,5 +1,6 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { useTheme, type Theme } from '../hooks/useTheme'
+import { api } from '../api/client'
 
 const navItems = [
   { to: '/', label: 'Dashboard' },
@@ -51,6 +52,27 @@ function ThemeSwitcher() {
   )
 }
 
+function LogoutButton() {
+  const handleLogout = async () => {
+    await api.post('/api/auth/logout', {})
+    window.location.href = '/login'
+  }
+  return (
+    <div
+      className="px-3 py-2 border-t"
+      style={{ borderColor: 'var(--color-border)' }}
+    >
+      <button
+        onClick={handleLogout}
+        className="w-full rounded py-1.5 text-xs transition-colors"
+        style={{ background: 'var(--color-surface2)', color: 'var(--color-muted)' }}
+      >
+        Cerrar sesión
+      </button>
+    </div>
+  )
+}
+
 export default function Layout() {
   return (
     <div
@@ -95,6 +117,7 @@ export default function Layout() {
         </ul>
 
         <ThemeSwitcher />
+        <LogoutButton />
       </nav>
 
       {/* Main content */}

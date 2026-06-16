@@ -43,7 +43,7 @@ services:
     environment:
       REDIS_URL: redis://redis:6379/0
       ENVIRONMENT: production
-      SCHEDULER_ENABLED: "true"
+      SCHEDULER_ENABLED: "false"  # scheduler runs in its own service below
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
@@ -120,14 +120,43 @@ services:
           memory: 512M
 
   # -----------------------------------------------------------------------
+  # Scheduler — APScheduler running in isolation (not in the API process)
+  # -----------------------------------------------------------------------
+  scheduler:
+    build:
+      context: ./backend
+      dockerfile: ../docker/Dockerfile.backend
+    platform: linux/arm64
+    restart: unless-stopped
+    command: ["python", "-m", "app.scheduler.scheduler"]
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      ENVIRONMENT: production
+      SCHEDULER_ENABLED: "true"
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - sqlite_data:/app/data/sqlite
+      - raw_data:/app/data/raw
+      - exports_data:/app/data/exports
+      - models_data:/app/data/models
+    networks:
+      - internal
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+
+  # -----------------------------------------------------------------------
   # Frontend — Nginx serving the React build
   # -----------------------------------------------------------------------
   frontend:
     build:
       context: ./frontend
       dockerfile: ../docker/Dockerfile.frontend
-      args:
-        VITE_ADMIN_TOKEN: ${VITE_ADMIN_TOKEN:-}
     platform: linux/arm64
     restart: unless-stopped
     ports:

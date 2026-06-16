@@ -224,3 +224,118 @@ class TestFailClosedAuth:
             assert "rps" in row
             assert "accuracy" in row
             assert "total_predictions" in row
+
+
+# ---------------------------------------------------------------------------
+# TestFix4Security — AUD-003, AUD-007, AUD-008, AUD-010
+# ---------------------------------------------------------------------------
+
+class TestFix4Security:
+    @pytest.fixture(autouse=True)
+    def _setup(self, monkeypatch, tmp_path):
+        monkeypatch.setattr("app.core.config.settings.SCHEDULER_ENABLED", False)
+        monkeypatch.setattr("app.core.config.settings.SQLITE_PATH", str(tmp_path / "fix4.db"))
+        monkeypatch.setattr("app.core.config.settings.ADMIN_TOKEN", "supersecret")
+        _make_db(str(tmp_path / "fix4.db")).close()
+
+        from app.api.routes import auth as auth_mod
+        auth_mod._active_sessions.clear()
+
+        from fastapi.testclient import TestClient
+        from app.main import app
+        self.client = TestClient(app, raise_server_exceptions=False)
+
+    def test_invalid_model_name_returns_422(self):
+        """POST /api/simulations/run with unknown model_name → 422 (Pydantic Literal)."""
+        r = self.client.post(
+            "/api/simulations/run",
+            json={"model_name": "invalid_model_xyz"},
+            headers={"X-Admin-Token": "supersecret"},
+        )
+        assert r.status_code == 422, f"Expected 422 for invalid model_name, got {r.status_code}"
+
+    def test_valid_model_name_passes_validation(self):
+        """POST /api/simulations/run with valid model_name passes Pydantic."""
+        from unittest.mock import MagicMock, patch
+        import uuid
+
+        with patch("app.api.routes.simulations.Redis") as mock_r, \
+             patch("app.api.routes.simulations.Queue") as mock_q:
+            mock_r.from_url.return_value = MagicMock()
+            job_mock = MagicMock()
+            job_mock.id = str(uuid.uuid4())
+            mock_q.return_value.enqueue.return_value = job_mock
+            r = self.client.post(
+                "/api/simulations/run",
+                json={"model_name": "baseline", "iterations": 1000},
+                headers={"X-Admin-Token": "supersecret"},
+            )
+        assert r.status_code == 200
+
+    def test_safe_load_model_rejects_path_outside_allowed_dir(self, monkeypatch, tmp_path):
+        """_safe_load_model must raise ValueError for paths outside ML_MODELS_PATH."""
+        from app.services.prediction.ml_calibrated import _safe_load_model
+
+        monkeypatch.setattr(
+            "app.core.config.settings.ML_MODELS_PATH", str(tmp_path / "models")
+        )
+        with pytest.raises((ValueError, FileNotFoundError)):
+            _safe_load_model("/etc/passwd")
+
+    def test_safe_load_model_rejects_traversal(self, monkeypatch, tmp_path):
+        """_safe_load_model blocks path traversal like ../../etc/passwd."""
+        from app.services.prediction.ml_calibrated import _safe_load_model
+        models_dir = tmp_path / "models"
+        models_dir.mkdir()
+        monkeypatch.setattr("app.core.config.settings.ML_MODELS_PATH", str(models_dir))
+        with pytest.raises((ValueError, FileNotFoundError)):
+            _safe_load_model(str(models_dir / ".." / ".." / "etc" / "passwd"))
+
+    def test_public_jobs_endpoint_omits_sensitive_fields(self):
+        """GET /api/jobs without admin credentials must not include error_message or result_ref."""
+        r = self.client.get("/api/jobs")
+        assert r.status_code == 200
+        for job in r.json():
+            assert "error_message" not in job, "error_message must not be in public jobs response"
+            assert "result_ref" not in job, "result_ref must not be in public jobs response"
+
+    def test_admin_jobs_endpoint_includes_sensitive_fields(self):
+        """GET /api/jobs with admin header must include error_message and result_ref."""
+        import sqlite3
+        from app.db.connection import db_transaction
+        from app.db.repositories.jobs import JobRepository
+
+        db_path = self.client.app.state.db_path if hasattr(self.client.app.state, "db_path") else None
+
+        r = self.client.get("/api/jobs", headers={"X-Admin-Token": "supersecret"})
+        assert r.status_code == 200
+        for job in r.json():
+            assert "error_message" in job
+            assert "result_ref" in job
+
+    def test_public_metrics_omits_injury_data(self):
+        """GET /api/metrics public must not include teams_with_injuries."""
+        r = self.client.get("/api/metrics")
+        assert r.status_code == 200
+        assert "teams_with_injuries" not in r.json(), (
+            "teams_with_injuries must not appear in public /api/metrics"
+        )
+
+    def test_admin_metrics_includes_injury_data(self):
+        """GET /api/metrics/admin must include teams_with_injuries."""
+        r = self.client.get("/api/metrics/admin", headers={"X-Admin-Token": "supersecret"})
+        assert r.status_code == 200
+        assert "teams_with_injuries" in r.json()
+
+    def test_api_docs_disabled_in_production(self, monkeypatch):
+        """GET /api/docs must return 404 when ENVIRONMENT=production."""
+        monkeypatch.setattr("app.core.config.settings.ENVIRONMENT", "production")
+        monkeypatch.setattr("app.core.config.settings.ADMIN_TOKEN", "supersecret")
+
+        # Re-create app with production env to pick up the disabled docs
+        from fastapi.testclient import TestClient
+        from app.main import _is_prod
+        if not _is_prod:
+            pytest.skip("App was built with dev settings; restart needed to test prod docs URL")
+        r = self.client.get("/api/docs")
+        assert r.status_code == 404

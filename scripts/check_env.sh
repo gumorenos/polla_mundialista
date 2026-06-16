@@ -49,13 +49,18 @@ is_placeholder() {
   return 1
 }
 
+# Lee ENVIRONMENT primero — antes de cualquier validación de seguridad
+ENVIRONMENT="$(get_env ENVIRONMENT)"; ENVIRONMENT="${ENVIRONMENT:-development}"
+
+echo "Entorno detectado: $ENVIRONMENT"
+echo ""
 echo "--- Seguridad (bloqueante en producción) ---"
 
 ADMIN_TOKEN="$(get_env ADMIN_TOKEN)"
 if [[ -z "$ADMIN_TOKEN" ]]; then
   log_err "ADMIN_TOKEN está vacío — requerido"
 elif is_placeholder "$ADMIN_TOKEN"; then
-  if [[ "${ENVIRONMENT:-development}" == "production" ]]; then
+  if [[ "$ENVIRONMENT" == "production" ]]; then
     log_err "ADMIN_TOKEN tiene valor placeholder — reemplazar con: openssl rand -hex 32"
   else
     log_warn "ADMIN_TOKEN tiene valor placeholder (OK en desarrollo, NO en producción)"
@@ -64,15 +69,6 @@ elif [[ ${#ADMIN_TOKEN} -lt 32 ]]; then
   log_warn "ADMIN_TOKEN tiene menos de 32 caracteres — se recomienda openssl rand -hex 32"
 else
   log_ok "ADMIN_TOKEN configurado (${#ADMIN_TOKEN} chars)"
-fi
-
-VITE_ADMIN_TOKEN="$(get_env VITE_ADMIN_TOKEN)"
-if [[ -z "$VITE_ADMIN_TOKEN" ]]; then
-  log_warn "VITE_ADMIN_TOKEN vacío — botones admin deshabilitados en el frontend"
-elif [[ "$VITE_ADMIN_TOKEN" != "$ADMIN_TOKEN" ]]; then
-  log_warn "VITE_ADMIN_TOKEN no coincide con ADMIN_TOKEN — el frontend no podrá autenticarse"
-else
-  log_ok "VITE_ADMIN_TOKEN coincide con ADMIN_TOKEN"
 fi
 
 echo ""
@@ -112,7 +108,6 @@ fi
 echo ""
 echo "--- Entorno ---"
 
-ENVIRONMENT="$(get_env ENVIRONMENT)"; ENVIRONMENT="${ENVIRONMENT:-development}"
 if [[ "$ENVIRONMENT" == "production" ]]; then
   log_ok "ENVIRONMENT=production"
 else

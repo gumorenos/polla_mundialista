@@ -137,7 +137,7 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     # Scheduler
     # ------------------------------------------------------------------
-    SCHEDULER_ENABLED: bool = True
+    SCHEDULER_ENABLED: bool = False  # must be enabled explicitly; only in the scheduler service
     SCHEDULER_FULL_REFRESH_CRON: str = "0 3 * * *"
     SCHEDULER_NEWS_CRON: str = "0 */6 * * *"
 

@@ -225,3 +225,24 @@ Tests añadidos/actualizados: `test_security.py` (14 tests), `test_health.py` (r
 7. **Tests E2E con Playwright**: cubrir flujo completo Dashboard → trigger pipeline → ver jobs → ver simulación actualizada.
 8. **Retry exponencial en scraper de noticias**: evitar bloqueos de fuentes con `tenacity`.
 9. **Versionado de modelos**: guardar cada modelo ML entrenado con timestamp en `data/models/` y exponer historial vía API.
+
+---
+
+## Fix-4 post-auditoría Codex (2026-06-16)
+
+Auditoría externa realizada por Codex en 4 fases sobre el estado post Fix-1/2/3.
+
+| ID Codex | Descripción | Severidad | Solución aplicada |
+|----------|-------------|-----------|-------------------|
+| AUD-001 | VITE_ADMIN_TOKEN embebido en bundle JS | Crítico | Reemplazado por login server-side con cookie httpOnly (`/api/auth/login`). Header `X-Admin-Token` sigue funcionando para scripts/curl. |
+| AUD-002 | Scheduler duplicado API+servicio | Alto | `SCHEDULER_ENABLED=false` por defecto en config; solo el servicio `scheduler` lo activa. Nuevo servicio separado en `docker-compose.prod.yml`. |
+| AUD-004 | API docs expuestos en producción | Medio | `/api/docs`, `/api/redoc`, `/api/openapi.json` deshabilitados cuando `ENVIRONMENT=production`. |
+| AUD-005 | check_env.sh lee ENVIRONMENT tarde | Medio | `ENVIRONMENT` se lee al inicio del script antes de cualquier validación de seguridad. |
+| AUD-007 | joblib.load sin validación de path | Alto | `_safe_load_model()` con `Path.resolve()` y comprobación de directorio permitido + whitelist de extensiones. |
+| AUD-008 | Info operacional pública (jobs, ML paths) | Medio | `GET /api/jobs` y `GET /api/jobs/{id}` sanitizan campos `error_message`, `result_ref`, `rq_job_id` para llamadas no autenticadas. `GET /api/metrics` público devuelve solo 3 campos; datos completos en `GET /api/metrics/admin`. `GET /api/ml/history` protegido con `require_admin`. |
+| AUD-010 | model_name acepta strings inválidos | Medio | `Literal["baseline","elo","poisson","poisson_context","ml_calibrated"]` en `RunRequest`; Pydantic devuelve 422 antes de encolar. |
+| AUD-011 | ML model recargado en cada request | Medio | `get_cached_model()` — cache module-level thread-safe; invalida solo si cambia `model_path` en DB. |
+| AUD-013 | CSP connect-src wildcard | Medio | Restringido a `'self' https://oraculo.todoestaaca.com` en `nginx.conf`. |
+| AUD-014 | Query strings sin encodeURIComponent | Bajo | `encodeURIComponent` aplicado en `useSimulations` y `useCalibration` en `hooks/index.ts`. |
+| DT-002 | uvicorn sin --workers en producción | Bajo | `Dockerfile.backend` CMD ahora incluye `--workers 2`. |
+| DT-013 | VITE_ADMIN_TOKEN en bundle (deuda) | **Resuelto** | Ver AUD-001. |
