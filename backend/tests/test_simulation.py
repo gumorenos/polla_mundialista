@@ -338,10 +338,19 @@ class TestFKRobustness:
         conn.close()
 
     def test_no_persisted_team_results_fails_run(self):
-        """A simulation must not be marked completed if no team result rows are saved."""
+        """A simulation must not be marked completed if no team result rows are saved.
+
+        Seed a dummy team ID not present in GROUPS_2026 so valid_team_ids is
+        non-empty (bypasses the 'teams table is empty' guard) but every
+        GROUPS_2026 team is skipped → inserted == 0 → RuntimeError.
+        """
         from app.services.simulation.monte_carlo import run_monte_carlo
 
         conn = _make_db()
+        # A team that exists in the teams table but is NOT in GROUPS_2026 — so
+        # the simulation runs, finds no valid teams to insert, and must fail.
+        conn.execute("INSERT INTO teams (id, name) VALUES ('PHANTOM', 'Phantom FC')")
+        conn.commit()
 
         with pytest.raises(RuntimeError, match="no persisted team results"):
             run_monte_carlo(model_name="baseline", conn=conn, iterations=1, seed=11)
