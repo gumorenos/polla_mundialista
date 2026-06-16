@@ -134,12 +134,13 @@ def _call_openrouter(model: str, prompt: str) -> str:
         resp = client.post(settings.OPENROUTER_BASE_URL, headers=headers, json=payload)
         resp.raise_for_status()
 
-    return resp.json()["choices"][0]["message"]["content"]
+    content = resp.json()["choices"][0]["message"]["content"]
+    return content or ""
 
 
-def _parse_response(raw: str) -> dict[str, Any] | None:
+def _parse_response(raw: str | None) -> dict[str, Any] | None:
     """Parse and validate LLM output. Returns None on any parsing failure."""
-    text = raw.strip()
+    text = (raw or "").strip()
     # Strip markdown fences
     if text.startswith("```"):
         text = text.strip("`").strip()

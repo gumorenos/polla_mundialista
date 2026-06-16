@@ -69,6 +69,8 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     API_FOOTBALL_KEY: str = ""
     API_FOOTBALL_BASE_URL: str = "https://v3.football.api-sports.io/"
+    API_FOOTBALL_HOST: str = "v3.football.api-sports.io"
+    API_FOOTBALL_RAPIDAPI: bool = False
 
     # ------------------------------------------------------------------
     # OpenRouter / LLM
@@ -80,8 +82,8 @@ class Settings(BaseSettings):
     OPENROUTER_APP_NAME: str = "OraculoMundial2026"
     OPENROUTER_FALLBACK_MODELS: List[str] = Field(
         default=[
-            "meta-llama/llama-3.1-8b-instruct:free",
-            "mistralai/mistral-7b-instruct:free",
+            "meta-llama/llama-3.1-8b-instruct",
+            "google/gemma-4-31b-it:free",
         ]
     )
 

@@ -33,7 +33,6 @@ from app.services.normalization.team_names import normalize_team_name
 
 logger = logging.getLogger(__name__)
 
-_BASE_URL = settings.API_FOOTBALL_BASE_URL.rstrip("/")
 _LEAGUE_WC2026 = 1       # FIFA World Cup league ID on api-sports.io
 _SEASON_WC2026  = 2026
 
@@ -53,6 +52,24 @@ def _is_senior(league_name: str) -> bool:
 # HTTP helpers
 # ---------------------------------------------------------------------------
 
+def _build_request_args(endpoint: str) -> tuple[str, dict[str, str]]:
+    """Return (url, headers) for the configured API-Football variant."""
+    if settings.API_FOOTBALL_RAPIDAPI:
+        base = f"https://{settings.API_FOOTBALL_HOST}"
+        headers = {
+            "x-rapidapi-key":  settings.API_FOOTBALL_KEY,
+            "x-rapidapi-host": settings.API_FOOTBALL_HOST,
+            "Accept": "application/json",
+        }
+    else:
+        base = settings.API_FOOTBALL_BASE_URL.rstrip("/")
+        headers = {
+            "x-apisports-key": settings.API_FOOTBALL_KEY,
+            "Accept": "application/json",
+        }
+    return f"{base}/{endpoint.lstrip('/')}", headers
+
+
 @retry(
     retry=retry_if_exception_type(Exception),
     stop=stop_after_attempt(3),
@@ -62,15 +79,9 @@ def _is_senior(league_name: str) -> bool:
 def _get(endpoint: str, params: dict[str, Any]) -> dict[str, Any]:
     if not settings.API_FOOTBALL_KEY:
         raise ValueError("API_FOOTBALL_KEY not configured")
+    url, headers = _build_request_args(endpoint)
     with httpx.Client(timeout=30) as client:
-        resp = client.get(
-            f"{_BASE_URL}/{endpoint.lstrip('/')}",
-            headers={
-                "x-apisports-key": settings.API_FOOTBALL_KEY,
-                "Accept": "application/json",
-            },
-            params=params,
-        )
+        resp = client.get(url, headers=headers, params=params)
         resp.raise_for_status()
         return resp.json()
 
