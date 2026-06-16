@@ -79,6 +79,15 @@ export function useAuthStatus() {
   })
 }
 
+export function usePasswordChanged() {
+  return useQuery<{ password_changed: boolean }>({
+    queryKey: ['password-changed'],
+    queryFn: () => api.get<{ password_changed: boolean }>('/api/auth/password-changed'),
+    retry: false,
+    staleTime: 60_000,
+  })
+}
+
 // ---------------------------------------------------------------------------
 // Mutation hooks
 // ---------------------------------------------------------------------------

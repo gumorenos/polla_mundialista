@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { useTheme, type Theme } from '../hooks/useTheme'
 import { api } from '../api/client'
+import { usePasswordChanged } from '../api/hooks'
 
 const navItems = [
   { to: '/', label: 'Dashboard' },
@@ -74,6 +75,9 @@ function LogoutButton() {
 }
 
 export default function Layout() {
+  const { data: passwordState } = usePasswordChanged()
+  const showFirstLoginBadge = passwordState?.password_changed === false
+
   return (
     <div
       className="flex min-h-screen"
@@ -94,6 +98,11 @@ export default function Layout() {
           <h1 className="text-sm font-bold text-blue-400 leading-tight">
             Oráculo<br />Mundial 2026
           </h1>
+          {showFirstLoginBadge && (
+            <span className="mt-3 inline-flex rounded bg-yellow-900/60 px-2 py-1 text-xs font-medium text-yellow-300">
+              Primer login
+            </span>
+          )}
         </div>
 
         <ul className="mt-4 flex flex-col gap-1 px-2 flex-1">

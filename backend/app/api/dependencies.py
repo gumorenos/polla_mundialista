@@ -32,8 +32,8 @@ def require_admin(
 
     # Cookie-based auth (frontend after login)
     if admin_session:
-        from app.api.routes.auth import _active_sessions, _hash_password
-        if _hash_password(admin_session) in _active_sessions:
+        from app.api.routes.auth import is_session_valid
+        if is_session_valid(admin_session):
             return
 
     raise HTTPException(

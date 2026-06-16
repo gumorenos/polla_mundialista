@@ -36,7 +36,8 @@ export default function ChangePassword() {
       )
       setSuccess(res.message)
       await qc.invalidateQueries({ queryKey: ['auth-status'] })
-      setTimeout(() => navigate('/'), 3000)
+      await qc.refetchQueries({ queryKey: ['auth-status'] })
+      navigate('/')
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Error al cambiar contraseña')
     } finally {

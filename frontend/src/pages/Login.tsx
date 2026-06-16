@@ -21,6 +21,7 @@ export default function Login() {
     try {
       const res = await api.post<LoginResponse>('/api/auth/login', { password })
       await qc.invalidateQueries({ queryKey: ['auth-status'] })
+      await qc.refetchQueries({ queryKey: ['auth-status'] })
       if (res.must_change_password) {
         setMustChange(true)
       } else {
@@ -45,15 +46,13 @@ export default function Login() {
         old_password: password,
         new_password: newPassword,
       })
-      setError(
-        'Cambio registrado. Actualiza ADMIN_PASSWORD en .env y reinicia el contenedor.'
-      )
+      setError('Contraseña cambiada exitosamente')
+      await qc.invalidateQueries({ queryKey: ['auth-status'] })
+      await qc.refetchQueries({ queryKey: ['auth-status'] })
       setMustChange(false)
       setNewPassword('')
       setConfirmPassword('')
-      setPassword('')
-      // Navigate after a short delay so the user sees the message
-      setTimeout(() => navigate('/'), 3000)
+      navigate('/')
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Error al cambiar contraseña')
     } finally {
@@ -109,7 +108,7 @@ export default function Login() {
               className="w-full bg-gray-700 text-white px-4 py-2 rounded border border-gray-600 focus:outline-none focus:border-green-500"
             />
             {error && (
-              <p className={error.includes('Actualiza') ? 'text-green-400 text-sm' : 'text-red-400 text-sm'}>
+              <p className={error.includes('exitosamente') ? 'text-green-400 text-sm' : 'text-red-400 text-sm'}>
                 {error}
               </p>
             )}

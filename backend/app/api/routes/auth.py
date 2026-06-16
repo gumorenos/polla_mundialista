@@ -7,11 +7,12 @@ API scripts continue to use ADMIN_TOKEN via X-Admin-Token header.
 from __future__ import annotations
 
 import hashlib
+import json
 import secrets
-import threading
 
 from fastapi import APIRouter, Cookie, HTTPException, Response, status
 from pydantic import BaseModel, Field
+from redis import Redis
 
 from app.core.config import settings
 from app.core.logging import get_logger
@@ -19,9 +20,11 @@ from app.core.logging import get_logger
 router = APIRouter(tags=["auth"])
 logger = get_logger(__name__)
 
-# Session store: { token_hash: { "must_change_password": bool } }
+# Kept only as a compatibility hook for older tests/imports. Sessions are
+# persisted in Redis so they survive API container restarts.
 _active_sessions: dict[str, dict] = {}
-_sessions_lock = threading.Lock()
+SESSION_TTL_SECONDS = 86400 * 7
+SESSION_KEY_PREFIX = "session:"
 
 
 class LoginRequest(BaseModel):
@@ -41,24 +44,79 @@ def _hash_password(token: str) -> str:
 _hash_token = _hash_password
 
 
+def _session_key(token_hash: str) -> str:
+    return f"{SESSION_KEY_PREFIX}{token_hash}"
+
+
+def _session_redis():
+    return Redis.from_url(settings.REDIS_URL, decode_responses=True)
+
+
 def _create_session(must_change_password: bool = False) -> str:
     token = secrets.token_hex(32)
     token_hash = _hash_password(token)
-    with _sessions_lock:
-        _active_sessions[token_hash] = {"must_change_password": must_change_password}
+    payload = json.dumps({"must_change_password": must_change_password})
+    try:
+        _session_redis().setex(
+            _session_key(token_hash),
+            SESSION_TTL_SECONDS,
+            payload,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Could not create Redis-backed admin session: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="No se pudo crear la sesión",
+        ) from exc
     return token
 
 
-def _is_placeholder(password: str) -> bool:
-    return password in ("", "change_me_in_production") or len(password) < 6
+def _get_session(admin_session: str) -> dict | None:
+    if not admin_session:
+        return None
+    token_hash = _hash_password(admin_session)
+    try:
+        raw = _session_redis().get(_session_key(token_hash))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not read Redis-backed admin session: %s", exc)
+        return None
+    if not raw:
+        return None
+    try:
+        session = json.loads(raw)
+    except json.JSONDecodeError:
+        session = {"must_change_password": False}
+    return session if isinstance(session, dict) else None
+
+
+def _update_session(admin_session: str, must_change_password: bool) -> None:
+    token_hash = _hash_password(admin_session)
+    payload = json.dumps({"must_change_password": must_change_password})
+    _session_redis().setex(
+        _session_key(token_hash),
+        SESSION_TTL_SECONDS,
+        payload,
+    )
+
+
+def _delete_session(admin_session: str) -> None:
+    token_hash = _hash_password(admin_session)
+    try:
+        _session_redis().delete(_session_key(token_hash))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not delete Redis-backed admin session: %s", exc)
+
+
+def is_session_valid(admin_session: str) -> bool:
+    return _get_session(admin_session) is not None
 
 
 @router.post("/api/auth/login")
 async def login(body: LoginRequest, response: Response) -> dict:
     """Verify ADMIN_PASSWORD and set an httpOnly session cookie.
 
-    Returns must_change_password=true when the password looks like a default
-    placeholder, prompting the user to set a real one.
+    Returns must_change_password=true when no successful password change has
+    ever been recorded, prompting the user to set the first real password.
     """
     if not settings.ADMIN_PASSWORD:
         raise HTTPException(
@@ -72,16 +130,21 @@ async def login(body: LoginRequest, response: Response) -> dict:
             detail="Contraseña incorrecta",
         )
 
-    must_change = _is_placeholder(body.password)
+    from app.db.connection import db_transaction
+    from app.db.repositories.auth import has_password_change_history
+
+    with db_transaction() as conn:
+        must_change = not has_password_change_history(conn)
+
     session_token = _create_session(must_change_password=must_change)
 
     response.set_cookie(
         key="admin_session",
         value=session_token,
         httponly=True,
-        secure=settings.ENVIRONMENT == "production",
-        samesite="strict",
-        max_age=86400,
+        secure=False,  # Cloudflare terminates HTTPS; backend sees internal HTTP.
+        samesite="lax",
+        max_age=SESSION_TTL_SECONDS,
         path="/",
     )
     logger.info("Admin login successful (must_change_password=%s)", must_change)
@@ -93,15 +156,8 @@ async def change_password(
     body: ChangePasswordRequest,
     admin_session: str = Cookie(default=""),
 ) -> dict:
-    """Register a password change in the audit log.
-
-    The new password only takes effect after updating ADMIN_PASSWORD in .env
-    and restarting the container. This endpoint records the intent and audits
-    the old hash.
-    """
-    token_hash = _hash_password(admin_session) if admin_session else ""
-    with _sessions_lock:
-        session = _active_sessions.get(token_hash)
+    """Change the admin password immediately and record it in the audit log."""
+    session = _get_session(admin_session)
     if not session:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -116,21 +172,21 @@ async def change_password(
     from app.db.connection import db_transaction
     from app.db.repositories.auth import insert_password_history
     with db_transaction() as conn:
-        insert_password_history(conn, "admin_ui", _hash_password(body.old_password))
+        insert_password_history(
+            conn,
+            "admin_ui",
+            _hash_password(body.old_password),
+            note="admin password changed from web UI",
+        )
         conn.commit()
 
-    # Mark session as no longer requiring a password change
-    with _sessions_lock:
-        if token_hash in _active_sessions:
-            _active_sessions[token_hash]["must_change_password"] = False
+    settings.ADMIN_PASSWORD = body.new_password
+    _update_session(admin_session, must_change_password=False)
 
-    logger.info("Admin password change registered — update ADMIN_PASSWORD in .env and restart")
+    logger.info("Admin password changed successfully")
     return {
         "status": "ok",
-        "message": (
-            "Cambio registrado. Actualiza ADMIN_PASSWORD en .env "
-            "y reinicia el contenedor para que tome efecto."
-        ),
+        "message": "Contraseña cambiada exitosamente",
     }
 
 
@@ -141,9 +197,7 @@ async def logout(
 ) -> dict:
     """Invalidate the current session cookie."""
     if admin_session:
-        token_hash = _hash_password(admin_session)
-        with _sessions_lock:
-            _active_sessions.pop(token_hash, None)
+        _delete_session(admin_session)
     response.delete_cookie("admin_session", path="/")
     return {"status": "ok"}
 
@@ -151,14 +205,21 @@ async def logout(
 @router.get("/api/auth/status")
 async def auth_status(admin_session: str = Cookie(default="")) -> dict:
     """Return whether the current request has a valid admin session."""
-    if not admin_session:
-        return {"authenticated": False, "must_change_password": False}
-    token_hash = _hash_password(admin_session)
-    with _sessions_lock:
-        session = _active_sessions.get(token_hash)
+    session = _get_session(admin_session)
     if not session:
         return {"authenticated": False, "must_change_password": False}
     return {
         "authenticated": True,
         "must_change_password": session.get("must_change_password", False),
     }
+
+
+@router.get("/api/auth/password-changed")
+async def password_changed() -> dict:
+    """Return whether at least one admin password change has been recorded."""
+    from app.db.connection import db_transaction
+    from app.db.repositories.auth import has_password_change_history
+
+    with db_transaction() as conn:
+        changed = has_password_change_history(conn)
+    return {"password_changed": changed}

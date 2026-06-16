@@ -392,10 +392,12 @@ def _m005_admin_password_history(conn: sqlite3.Connection) -> None:
             id           INTEGER PRIMARY KEY AUTOINCREMENT,
             changed_at   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             changed_by   TEXT NOT NULL DEFAULT 'system',
-            password_hash TEXT NOT NULL
+            password_hash TEXT NOT NULL,
+            note         TEXT
         )
         """
     )
+    _add_col(conn, "admin_password_history", "note", "TEXT")
 
 
 # ---------------------------------------------------------------------------

@@ -100,7 +100,7 @@ class SimulationRepository:
 
     def insert_team_result(self, result: dict[str, Any]) -> str:
         result_id = result.get("id") or str(uuid.uuid4())
-        self._c.execute(
+        cur = self._c.execute(
             """
             INSERT OR IGNORE INTO simulation_team_results
                 (id, simulation_run_id, team_id,
@@ -130,7 +130,7 @@ class SimulationRepository:
                 "expected_group_points": result.get("expected_group_points"),
             },
         )
-        return result_id
+        return result_id if cur.rowcount > 0 else ""
 
     def create_snapshot(self, snap: dict[str, Any]) -> str:
         """Persist a snapshot record linked to a simulation run."""

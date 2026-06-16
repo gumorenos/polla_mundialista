@@ -31,8 +31,8 @@ def _check_admin(x_admin_token: str, admin_session: str) -> bool:
     if x_admin_token and _sec.compare_digest(x_admin_token, settings.ADMIN_TOKEN):
         return True
     if admin_session:
-        from app.api.routes.auth import _active_sessions, _hash_password
-        if _hash_password(admin_session) in _active_sessions:
+        from app.api.routes.auth import is_session_valid
+        if is_session_valid(admin_session):
             return True
     return False
 

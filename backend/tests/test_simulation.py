@@ -336,3 +336,20 @@ class TestFKRobustness:
         skipped_msgs = [r.message for r in caplog.records if "not in teams table" in r.message]
         assert skipped_msgs, "Expected at least one WARNING about team not in teams table"
         conn.close()
+
+    def test_no_persisted_team_results_fails_run(self):
+        """A simulation must not be marked completed if no team result rows are saved."""
+        from app.services.simulation.monte_carlo import run_monte_carlo
+
+        conn = _make_db()
+
+        with pytest.raises(RuntimeError, match="no persisted team results"):
+            run_monte_carlo(model_name="baseline", conn=conn, iterations=1, seed=11)
+
+        row = conn.execute(
+            "SELECT status, error_message FROM simulation_runs ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+        assert row is not None
+        assert row["status"] == "failed"
+        assert "no persisted team results" in row["error_message"]
+        conn.close()

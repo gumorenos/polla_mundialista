@@ -160,6 +160,7 @@ def run_monte_carlo(
             # Persist per-team results. Missing team rows are skipped to avoid
             # aborting an otherwise valid simulation on reference-data drift.
             skipped = 0
+            inserted = 0
             for tid in all_team_ids:
                 if tid not in valid_team_ids:
                     logger.warning(
@@ -172,7 +173,7 @@ def run_monte_carlo(
                 rc    = rounds_count[tid]
                 wins  = win_count[tid]
                 total = n_iter
-                repo.insert_team_result({
+                result_id = repo.insert_team_result({
                     "simulation_run_id":   run_id,
                     "team_id":             tid,
                     "win_group":           group_win_count[tid] / total,
@@ -185,11 +186,18 @@ def run_monte_carlo(
                     "win_tournament":      wins / total,
                     "expected_group_points": None,
                 })
+                if result_id:
+                    inserted += 1
 
             if skipped:
                 logger.warning(
                     "MC run %s: skipped %d/%d team result(s)",
                     run_id, skipped, len(all_team_ids),
+                )
+
+            if inserted == 0:
+                raise RuntimeError(
+                    f"Monte Carlo run {run_id} produced no persisted team results"
                 )
 
             repo.update_run_status(

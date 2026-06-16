@@ -9,6 +9,30 @@ _PASSWORD = "mypassword123"
 _PLACEHOLDER = "change_me_in_production"
 
 
+class _FakeRedis:
+    def __init__(self):
+        self.store: dict[str, str] = {}
+
+    def setex(self, key: str, ttl: int, value: str) -> None:
+        self.store[key] = value
+
+    def get(self, key: str) -> str | None:
+        return self.store.get(key)
+
+    def delete(self, key: str) -> None:
+        self.store.pop(key, None)
+
+
+def _install_fake_redis(monkeypatch):
+    fake = _FakeRedis()
+
+    def _from_url(*args, **kwargs):
+        return fake
+
+    monkeypatch.setattr("app.api.routes.auth.Redis.from_url", _from_url)
+    return fake
+
+
 # ---------------------------------------------------------------------------
 # Shared fixture
 # ---------------------------------------------------------------------------
@@ -22,6 +46,14 @@ def client(monkeypatch, tmp_path):
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     run_migrations(conn)
+    conn.execute(
+        """
+        INSERT INTO admin_password_history (changed_by, password_hash, note)
+        VALUES (?, ?, ?)
+        """,
+        ("test_seed", "seed_hash", "existing password change"),
+    )
+    conn.commit()
     conn.close()
 
     monkeypatch.setattr("app.core.config.settings.SCHEDULER_ENABLED", False)
@@ -29,9 +61,9 @@ def client(monkeypatch, tmp_path):
     monkeypatch.setattr("app.core.config.settings.ADMIN_TOKEN", _TOKEN)
     monkeypatch.setattr("app.core.config.settings.ADMIN_PASSWORD", _PASSWORD)
 
-    # Reset session store between tests
     from app.api.routes import auth as auth_mod
     auth_mod._active_sessions.clear()
+    _install_fake_redis(monkeypatch)
 
     from fastapi.testclient import TestClient
     from app.main import app
@@ -150,8 +182,8 @@ class TestAdminAccess:
 # ---------------------------------------------------------------------------
 
 class TestFirstLogin:
-    def test_placeholder_password_returns_must_change_true(self, monkeypatch, tmp_path):
-        """Login con contraseña placeholder retorna must_change_password=true."""
+    def test_empty_password_history_returns_must_change_true(self, monkeypatch, tmp_path):
+        """Primer login se detecta por historial vacío, no por el valor de ADMIN_PASSWORD."""
         import sqlite3
         from app.db.migrations import run_migrations
 
@@ -164,16 +196,17 @@ class TestFirstLogin:
         monkeypatch.setattr("app.core.config.settings.SCHEDULER_ENABLED", False)
         monkeypatch.setattr("app.core.config.settings.SQLITE_PATH", db_path)
         monkeypatch.setattr("app.core.config.settings.ADMIN_TOKEN", _TOKEN)
-        monkeypatch.setattr("app.core.config.settings.ADMIN_PASSWORD", _PLACEHOLDER)
+        monkeypatch.setattr("app.core.config.settings.ADMIN_PASSWORD", _PASSWORD)
 
         from app.api.routes import auth as auth_mod
         auth_mod._active_sessions.clear()
+        _install_fake_redis(monkeypatch)
 
         from fastapi.testclient import TestClient
         from app.main import app
         c = TestClient(app, raise_server_exceptions=False)
 
-        r = c.post("/api/auth/login", json={"password": _PLACEHOLDER})
+        r = c.post("/api/auth/login", json={"password": _PASSWORD})
         assert r.status_code == 200
         assert r.json()["must_change_password"] is True
 
@@ -202,7 +235,6 @@ class TestChangePassword:
 
     def test_change_password_registers_in_history(self, client):
         """POST /api/auth/change-password inserta registro en admin_password_history."""
-        import sqlite3
         client.post("/api/auth/login", json={"password": _PASSWORD})
         r = client.post("/api/auth/change-password", json={
             "old_password": _PASSWORD,
@@ -220,3 +252,24 @@ class TestChangePassword:
         })
         r = client.get("/api/auth/status")
         assert r.json()["must_change_password"] is False
+
+    def test_change_password_updates_password_immediately(self, client):
+        """La nueva contraseña debe funcionar sin reiniciar el proceso."""
+        client.post("/api/auth/login", json={"password": _PASSWORD})
+        r = client.post("/api/auth/change-password", json={
+            "old_password": _PASSWORD,
+            "new_password": "nuevapass123",
+        })
+        assert r.status_code == 200
+        client.post("/api/auth/logout")
+
+        old_login = client.post("/api/auth/login", json={"password": _PASSWORD})
+        assert old_login.status_code == 401
+
+        new_login = client.post("/api/auth/login", json={"password": "nuevapass123"})
+        assert new_login.status_code == 200
+
+    def test_password_changed_endpoint_returns_history_state(self, client):
+        r = client.get("/api/auth/password-changed")
+        assert r.status_code == 200
+        assert r.json()["password_changed"] is True
