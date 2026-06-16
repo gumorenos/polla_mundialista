@@ -51,7 +51,7 @@ services:
         condition: service_healthy
     volumes:
       - sqlite_data:/app/data/sqlite
-      - raw_data:/app/data/raw
+      - ./data/raw:/app/data/raw:ro
       - exports_data:/app/data/exports
       - models_data:/app/data/models
       - backups_data:/app/data/backups
@@ -99,7 +99,7 @@ services:
         condition: service_healthy
     volumes:
       - sqlite_data:/app/data/sqlite
-      - raw_data:/app/data/raw
+      - ./data/raw:/app/data/raw:ro
       - exports_data:/app/data/exports
       - models_data:/app/data/models
     networks:
@@ -139,7 +139,7 @@ services:
         condition: service_healthy
     volumes:
       - sqlite_data:/app/data/sqlite
-      - raw_data:/app/data/raw
+      - ./data/raw:/app/data/raw:ro
       - exports_data:/app/data/exports
       - models_data:/app/data/models
     networks:
@@ -191,7 +191,6 @@ networks:
 volumes:
   redis_data:
   sqlite_data:
-  raw_data:
   exports_data:
   models_data:
   backups_data:

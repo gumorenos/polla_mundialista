@@ -92,15 +92,21 @@ def run_monte_carlo(
     )
     conn.commit()
 
-    # Accumulators
-    win_count:   Counter[str] = Counter()  # champion wins per team
-    rounds_count: dict[str, Counter[str]] = defaultdict(Counter)  # team→{round:count}
-    group_win_count:   Counter[str] = Counter()
-    qualify_count:     Counter[str] = Counter()
-
-    num_batches = max(1, (n_iter + batch - 1) // batch)
-
     try:
+        valid_team_ids = repo.get_existing_team_ids()
+        if not valid_team_ids:
+            raise RuntimeError(
+                "teams table is empty; run full refresh or load data/raw/teams.csv before simulations"
+            )
+
+        # Accumulators
+        win_count:   Counter[str] = Counter()  # champion wins per team
+        rounds_count: dict[str, Counter[str]] = defaultdict(Counter)  # team→{round:count}
+        group_win_count:   Counter[str] = Counter()
+        qualify_count:     Counter[str] = Counter()
+
+        num_batches = max(1, (n_iter + batch - 1) // batch)
+
         completed = 0
         for batch_idx in range(num_batches):
             batch_iters = min(batch, n_iter - completed)
@@ -148,13 +154,6 @@ def run_monte_carlo(
             if not repo.run_exists(run_id):
                 raise RuntimeError(
                     f"simulation_run '{run_id}' was not persisted before team results insert"
-                )
-
-            valid_team_ids = repo.get_existing_team_ids()
-            if not valid_team_ids:
-                logger.warning(
-                    "MC run %s: teams table is empty — skipping all team results",
-                    run_id,
                 )
 
             # Persist per-team results. Missing team rows are skipped to avoid
