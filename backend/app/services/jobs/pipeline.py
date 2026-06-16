@@ -19,7 +19,7 @@ import sqlite3
 import threading
 import time
 from datetime import date, datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 from app.db.repositories.jobs import JobRepository
 
@@ -79,6 +79,7 @@ _ALL_MODELS  = _BASE_MODELS + ["ml_calibrated"]
 def run_full_refresh(
     db_conn: sqlite3.Connection,
     job_id: str,
+    cancel_check: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     """Full data refresh pipeline.
 
@@ -114,6 +115,8 @@ def run_full_refresh(
     started = datetime.now(timezone.utc).isoformat()
 
     def _progress(p: float) -> None:
+        if cancel_check:
+            cancel_check()
         job_repo.update_progress(job_id, p)
         db_conn.commit()
 
@@ -123,6 +126,8 @@ def run_full_refresh(
     # ------------------------------------------------------------------
     # Step 1 — CSV ingestion (mandatory)
     # ------------------------------------------------------------------
+    if cancel_check:
+        cancel_check()
     with _StepTimer("CSV ingestion", 1, 9):
         teams    = load_teams_from_csv()
         groups   = load_groups_from_csv()
@@ -146,6 +151,8 @@ def run_full_refresh(
     try:
         with _StepTimer("ELO scraping", 2, 9):
             summary["elo_scrape"] = {"records": ingest_elo_ratings()}
+    except InterruptedError:
+        raise
     except Exception as exc:
         logger.warning("ELO scraping failed (non-fatal): %s", exc)
         summary["elo_scrape"] = {"status": "failed", "error": str(exc)}
@@ -158,6 +165,8 @@ def run_full_refresh(
         with _StepTimer("API Football", 3, 9):
             from app.services.ingestion.api_football import ingest_api_fixtures
             summary["api_football"] = {"records": ingest_api_fixtures(conn=db_conn)}
+    except InterruptedError:
+        raise
     except Exception as exc:
         logger.warning("API Football failed (non-fatal): %s", exc)
         summary["api_football"] = {"status": "failed", "error": str(exc)}
@@ -177,6 +186,8 @@ def run_full_refresh(
     try:
         with _StepTimer("News analysis", 5, 9):
             summary["news"] = run_news_analysis(db_conn)
+    except InterruptedError:
+        raise
     except Exception as exc:
         logger.warning("News analysis failed (non-fatal): %s", exc)
         summary["news"] = {"status": "failed", "error": str(exc)}
@@ -200,6 +211,8 @@ def run_full_refresh(
     try:
         with _StepTimer("ML training", 7, 9):
             summary["ml_training"] = train_ml_model(db_conn)
+    except InterruptedError:
+        raise
     except Exception as exc:
         logger.warning("ML training failed (non-fatal): %s", exc)
         summary["ml_training"] = {"status": "failed", "error": str(exc)}

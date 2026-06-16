@@ -18,10 +18,15 @@ _HEARTBEAT_INTERVAL = 30.0  # seconds between DB heartbeat writes
 class _HeartbeatUpdater:
     """Background thread that writes last_heartbeat to the jobs table every 30 s.
 
+    Also detects 'cancelling' status set by the cancel endpoint and exposes
+    cancel_event so the main task can stop cleanly without killing the worker.
+
     Opens its own DB connection so it never contends with the main task
     connection. Safe to use as a context manager::
 
-        with _HeartbeatUpdater(job_id):
+        with _HeartbeatUpdater(job_id) as hb:
+            if hb.cancel_event.is_set():
+                raise InterruptedError("cancelled")
             do_long_work()
     """
 
@@ -30,6 +35,7 @@ class _HeartbeatUpdater:
         self._interval = interval
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True, name=f"hb-{job_id[:8]}")
+        self.cancel_event = threading.Event()
 
     def start(self) -> None:
         self._thread.start()
@@ -52,6 +58,14 @@ class _HeartbeatUpdater:
                 from app.db.repositories.jobs import JobRepository
 
                 with db_transaction() as conn:
+                    job = JobRepository(conn).get_by_id(self._job_id)
+                    if job and job["status"] in ("cancelling", "cancelled"):
+                        self.cancel_event.set()
+                        logger.info(
+                            "Heartbeat: job %s is '%s' — signalling cancellation",
+                            self._job_id, job["status"],
+                        )
+                        return
                     JobRepository(conn).update_heartbeat(self._job_id)
             except Exception as exc:  # noqa: BLE001
                 logger.debug("Heartbeat update failed for job %s: %s", self._job_id, exc)
@@ -118,10 +132,6 @@ def run_simulation_task(
     def _do_run(conn: sqlite3.Connection) -> str:
         job_repo = JobRepository(conn)
 
-        def _progress(p: float) -> None:
-            job_repo.update_progress(job_id, p)
-            conn.commit()
-
         job_repo.update_status(
             job_id, "running",
             started_at=datetime.now(timezone.utc).isoformat(),
@@ -130,7 +140,13 @@ def run_simulation_task(
 
         run_id: str | None = None
         try:
-            with _HeartbeatUpdater(job_id):
+            with _HeartbeatUpdater(job_id) as hb:
+                def _progress(p: float) -> None:
+                    if hb.cancel_event.is_set():
+                        raise InterruptedError(f"Job {job_id} cancellation requested")
+                    job_repo.update_progress(job_id, p)
+                    conn.commit()
+
                 run_id = run_monte_carlo(
                     model_name=model_name,
                     conn=conn,
@@ -145,6 +161,15 @@ def run_simulation_task(
                 result_ref=run_id,
             )
             conn.commit()
+        except InterruptedError:
+            logger.info("run_simulation_task: job %s cancelled cleanly", job_id)
+            job_repo.update_status(
+                job_id, "cancelled",
+                finished_at=datetime.now(timezone.utc).isoformat(),
+                error_message="Cancelled by admin",
+            )
+            conn.commit()
+            return ""
         except Exception as exc:
             logger.exception("run_simulation_task failed for job %s: %s", job_id, exc)
             job_repo.update_status(
@@ -183,14 +208,27 @@ def run_full_refresh_task(
         )
         conn.commit()
         try:
-            with _HeartbeatUpdater(job_id):
-                result = run_full_refresh(conn, job_id)
+            with _HeartbeatUpdater(job_id) as hb:
+                def _check_cancel() -> None:
+                    if hb.cancel_event.is_set():
+                        raise InterruptedError(f"Job {job_id} cancellation requested")
+
+                result = run_full_refresh(conn, job_id, cancel_check=_check_cancel)
             job_repo.update_status(
                 job_id, "completed",
                 finished_at=datetime.now(timezone.utc).isoformat(),
             )
             conn.commit()
             return result
+        except InterruptedError:
+            logger.info("run_full_refresh_task: job %s cancelled cleanly", job_id)
+            job_repo.update_status(
+                job_id, "cancelled",
+                finished_at=datetime.now(timezone.utc).isoformat(),
+                error_message="Cancelled by admin",
+            )
+            conn.commit()
+            return {}
         except Exception as exc:
             logger.exception("run_full_refresh_task failed for job %s: %s", job_id, exc)
             job_repo.update_status(

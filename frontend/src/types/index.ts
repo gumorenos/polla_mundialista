@@ -111,6 +111,41 @@ export interface SimulationRequest {
   iterations?: number
 }
 
+export interface NewsClaim {
+  id: string
+  team_id: string
+  team_name: string
+  player_name: string
+  status: 'injured' | 'doubtful' | 'available' | 'unknown'
+  reason: string | null
+  source_url: string | null
+  source_name: string | null
+  confidence: number | null
+  evidence_level: string | null
+  affects_prediction: number
+  observed_at: string
+  created_at: string
+}
+
+export interface NewsResponse {
+  items: NewsClaim[]
+  last_updated: string | null
+  total: number
+}
+
+export interface NewsTeamSummary {
+  team_id: string
+  team_name: string
+  injury_count: number
+  players_affected: string[]
+  attack_factor: number | null
+  defense_factor: number | null
+}
+
+export interface NewsSummaryResponse {
+  teams: NewsTeamSummary[]
+}
+
 export interface SimulationComparisonTeam {
   team_id: string
   team_name: string

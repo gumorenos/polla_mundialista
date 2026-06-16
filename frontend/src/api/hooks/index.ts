@@ -5,6 +5,8 @@ import type {
   EnqueueResponse,
   JobRecord,
   ModelMetrics,
+  NewsResponse,
+  NewsSummaryResponse,
   Snapshot,
   SimulationComparison,
   SimulationRequest,
@@ -146,6 +148,35 @@ export function useCancelJob() {
   const qc = useQueryClient()
   return useMutation<{ cancelled: boolean; job_id: string }, Error, string>({
     mutationFn: (jobId) => api.delete(`/api/jobs/${jobId}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['jobs'] }),
+  })
+}
+
+export function useNews(params?: { team_id?: string; classification?: string; limit?: number }) {
+  const qs = new URLSearchParams()
+  if (params?.team_id) qs.set('team_id', params.team_id)
+  if (params?.classification) qs.set('classification', params.classification)
+  if (params?.limit) qs.set('limit', String(params.limit))
+  const query = qs.toString() ? `?${qs}` : ''
+  return useQuery<NewsResponse>({
+    queryKey: ['news', params],
+    queryFn: () => api.get<NewsResponse>(`/api/news${query}`),
+    staleTime: 2 * 60 * 1000,
+  })
+}
+
+export function useNewsSummary() {
+  return useQuery<NewsSummaryResponse>({
+    queryKey: ['news', 'summary'],
+    queryFn: () => api.get<NewsSummaryResponse>('/api/news/summary'),
+    staleTime: 2 * 60 * 1000,
+  })
+}
+
+export function useTriggerNews() {
+  const qc = useQueryClient()
+  return useMutation<EnqueueResponse, Error, void>({
+    mutationFn: () => api.post<EnqueueResponse>('/api/news/trigger', {}),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['jobs'] }),
   })
 }

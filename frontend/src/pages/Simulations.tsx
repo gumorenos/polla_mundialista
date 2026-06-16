@@ -55,23 +55,71 @@ function TeamTable({ rows }: { rows: TeamResult[] }) {
 }
 
 function ComparisonTable({ teams, models }: { teams: SimulationComparisonTeam[]; models: string[] }) {
+  const [sortKey, setSortKey] = useState<string>('avg')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+
+  function handleSort(key: string) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'))
+    } else {
+      setSortKey(key)
+      setSortDir('desc')
+    }
+  }
+
+  function arrow(key: string) {
+    if (sortKey !== key) return <span className="text-gray-600 ml-1">↕</span>
+    return <span className="ml-1">{sortDir === 'desc' ? '↓' : '↑'}</span>
+  }
+
+  const teamsWithAvg = teams.map((team) => {
+    const vals = models.map((m) => team[m as keyof SimulationComparisonTeam] as number | null)
+    const present = vals.filter((v): v is number => v !== null)
+    const avg = present.length > 0 ? present.reduce((a, b) => a + b, 0) / present.length : null
+    return { team, vals, avg }
+  })
+
+  const sorted = [...teamsWithAvg].sort((a, b) => {
+    let va: number | string | null
+    let vb: number | string | null
+    if (sortKey === 'name') {
+      va = a.team.team_name
+      vb = b.team.team_name
+      return sortDir === 'asc'
+        ? String(va).localeCompare(String(vb))
+        : String(vb).localeCompare(String(va))
+    } else if (sortKey === 'avg') {
+      va = a.avg
+      vb = b.avg
+    } else {
+      va = a.team[sortKey as keyof SimulationComparisonTeam] as number | null
+      vb = b.team[sortKey as keyof SimulationComparisonTeam] as number | null
+    }
+    if (va === null && vb === null) return 0
+    if (va === null) return 1
+    if (vb === null) return -1
+    return sortDir === 'desc' ? (vb as number) - (va as number) : (va as number) - (vb as number)
+  })
+
+  const thClass = 'px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-400 cursor-pointer select-none hover:text-gray-200'
+
   return (
     <div className="overflow-x-auto rounded-lg border border-gray-800">
       <table className="w-full text-sm">
         <thead className="bg-gray-900">
           <tr>
             <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-400">#</th>
-            <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-400">Selección</th>
+            <th className={thClass} onClick={() => handleSort('name')}>Selección{arrow('name')}</th>
             {models.map((m) => (
-              <th key={m} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-400">
-                {MODEL_LABELS[m] ?? m}
+              <th key={m} className={thClass} onClick={() => handleSort(m)}>
+                {MODEL_LABELS[m] ?? m}{arrow(m)}
               </th>
             ))}
+            <th className={thClass} onClick={() => handleSort('avg')}>Promedio{arrow('avg')}</th>
           </tr>
         </thead>
         <tbody>
-          {teams.map((team, i) => {
-            const vals = models.map((m) => team[m as keyof SimulationComparisonTeam] as number | null)
+          {sorted.map(({ team, vals, avg }, i) => {
             const presentVals = vals.filter((v): v is number => v !== null)
             const max = presentVals.length > 0 ? Math.max(...presentVals) : null
             const min = presentVals.length > 0 ? Math.min(...presentVals) : null
@@ -100,6 +148,9 @@ function ComparisonTable({ teams, models }: { teams: SimulationComparisonTeam[];
                     </td>
                   )
                 })}
+                <td className="px-4 py-2 font-mono text-xs text-blue-300">
+                  {avg === null ? '—' : fmt(avg)}
+                </td>
               </tr>
             )
           })}

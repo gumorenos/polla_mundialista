@@ -83,8 +83,12 @@ def fetch_teams_wc2026() -> list[dict[str, Any]]:
         return []
 
 
-def fetch_matches_wc2026() -> list[dict[str, Any]]:
+def fetch_matches_wc2026(known_team_ids: set[str] | None = None) -> list[dict[str, Any]]:
     """Fetch WC 2026 matches (finished only) from football-data.org.
+
+    Args:
+        known_team_ids: if provided, skip matches where either team TLA is not in this set.
+                        Prevents friendlies or warm-up matches from leaking in.
 
     Returns list of {home_name, away_name, home_goals, away_goals, match_date, tournament, fixture_id}.
     Returns [] on any failure.
@@ -95,6 +99,7 @@ def fetch_matches_wc2026() -> list[dict[str, Any]]:
     try:
         data = _get(f"competitions/{_WC_CODE}/matches", {"season": _WC_SEASON})
         matches = []
+        skipped = 0
         for m in data.get("matches", []):
             if m.get("status") != "FINISHED":
                 continue
@@ -103,6 +108,17 @@ def fetch_matches_wc2026() -> list[dict[str, Any]]:
             away_goals = score.get("away")
             if home_goals is None or away_goals is None:
                 continue
+            home_tla = (m.get("homeTeam", {}).get("tla") or "").upper()
+            away_tla = (m.get("awayTeam", {}).get("tla") or "").upper()
+            if known_team_ids is not None:
+                if home_tla not in known_team_ids or away_tla not in known_team_ids:
+                    logger.debug(
+                        "Skipping match with non-WC teams: %s (%s) vs %s (%s)",
+                        m.get("homeTeam", {}).get("name"), home_tla,
+                        m.get("awayTeam", {}).get("name"), away_tla,
+                    )
+                    skipped += 1
+                    continue
             home_name = normalize_team_name(m.get("homeTeam", {}).get("name", ""))
             away_name = normalize_team_name(m.get("awayTeam", {}).get("name", ""))
             utc_date = m.get("utcDate", "")[:10]
@@ -115,6 +131,8 @@ def fetch_matches_wc2026() -> list[dict[str, Any]]:
                 "tournament": f"FIFA World Cup {_WC_SEASON}",
                 "fixture_id": str(m.get("id", "")),
             })
+        if skipped:
+            logger.info("football-data.org: skipped %d matches with non-WC teams", skipped)
         logger.info("football-data.org: fetched %d finished WC2026 matches", len(matches))
         return matches
     except (RetryError, Exception) as exc:
@@ -162,10 +180,22 @@ def fetch_standings_wc2026() -> list[dict[str, Any]]:
 def ingest_football_data_fixtures(conn: sqlite3.Connection | None = None) -> int:
     """Fetch WC2026 matches from football-data.org and persist them.
 
+    Only ingests matches where both teams are registered in the teams table.
     Returns number of newly inserted results. Returns 0 on failure.
     """
     t0 = time.perf_counter()
-    matches = fetch_matches_wc2026()
+
+    def _get_known_ids(c: sqlite3.Connection) -> set[str]:
+        return {row[0] for row in c.execute("SELECT id FROM teams").fetchall()}
+
+    known_ids: set[str] = set()
+    if conn is not None:
+        known_ids = _get_known_ids(conn)
+    else:
+        with db_transaction() as c:
+            known_ids = _get_known_ids(c)
+
+    matches = fetch_matches_wc2026(known_team_ids=known_ids)
     if not matches:
         return 0
 

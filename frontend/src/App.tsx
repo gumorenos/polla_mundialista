@@ -5,6 +5,7 @@ import ChangePassword from './pages/ChangePassword'
 import Dashboard from './pages/Dashboard'
 import Jobs from './pages/Jobs'
 import Login from './pages/Login'
+import News from './pages/News'
 import Models from './pages/Models'
 import Simulations from './pages/Simulations'
 import Snapshots from './pages/Snapshots'
@@ -55,6 +56,7 @@ export default function App() {
           <Route path="snapshots" element={<Snapshots />} />
           <Route path="calibration" element={<Calibration />} />
           <Route path="jobs" element={<Jobs />} />
+          <Route path="news" element={<News />} />
         </Route>
       </Routes>
     </BrowserRouter>

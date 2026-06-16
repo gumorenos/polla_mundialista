@@ -79,7 +79,7 @@ class JobRepository:
         ]
 
     def cancel(self, job_id: str) -> bool:
-        """Mark job as cancelled. Returns True if a row was updated."""
+        """Mark job as cancelled immediately (for enqueued jobs). Returns True if updated."""
         cur = self._c.execute(
             """
             UPDATE jobs
@@ -87,6 +87,23 @@ class JobRepository:
                 finished_at = datetime('now'),
                 error_message = 'Cancelled by admin'
             WHERE id = ? AND status IN ('enqueued', 'started', 'running')
+            """,
+            (job_id,),
+        )
+        return cur.rowcount > 0
+
+    def request_cancel(self, job_id: str) -> bool:
+        """Mark a running job as 'cancelling' for graceful shutdown by the worker.
+
+        The worker's heartbeat thread detects 'cancelling' and signals the task
+        to stop cleanly, keeping the worker process alive for subsequent jobs.
+        Returns True if the status was updated.
+        """
+        cur = self._c.execute(
+            """
+            UPDATE jobs
+            SET status = 'cancelling'
+            WHERE id = ? AND status IN ('started', 'running')
             """,
             (job_id,),
         )

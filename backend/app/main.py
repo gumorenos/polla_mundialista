@@ -14,6 +14,7 @@ from app.api.routes.evaluations import router as evaluations_router
 from app.api.routes.health import router as health_router
 from app.api.routes.jobs import router as jobs_router
 from app.api.routes.metrics import router as metrics_router
+from app.api.routes.news import router as news_router
 from app.api.routes.ml import router as ml_router
 from app.api.routes.pipelines import router as pipelines_router
 from app.api.routes.simulations import router as simulations_router
@@ -79,3 +80,4 @@ app.include_router(ml_router)
 app.include_router(pipelines_router)
 app.include_router(evaluations_router)
 app.include_router(metrics_router)
+app.include_router(news_router)
