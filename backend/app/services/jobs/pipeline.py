@@ -84,6 +84,11 @@ def run_full_refresh(
         "teams": teams, "groups": groups,
         "fixtures": fixtures, "ratings": ratings, "history": history,
     }
+    if teams == 0:
+        raise RuntimeError(
+            "Full refresh aborted: teams.csv loaded 0 rows. "
+            "Check DATA_RAW_PATH and that data/raw/teams.csv exists."
+        )
     _progress(0.05)
 
     # ------------------------------------------------------------------

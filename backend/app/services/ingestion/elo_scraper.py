@@ -86,7 +86,7 @@ def _parse_elo_html(html: str) -> list[EloEntry]:
 
 def scrape_elo_ratings() -> list[EloEntry]:
     """Attempt to scrape live ELO ratings; returns empty list on failure."""
-    url = f"{_ELO_URL}/en/club/national"
+    url = _ELO_URL  # root page lists all national teams
     try:
         html = _fetch_html(url)
         entries = _parse_elo_html(html)

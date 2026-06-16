@@ -312,7 +312,7 @@ class TestFullRefreshPipeline:
 
         # Stub out network / I/O steps that require real files or internet
         monkeypatch.setattr(
-            "app.services.ingestion.csv_loader.load_teams_from_csv", lambda: 0
+            "app.services.ingestion.csv_loader.load_teams_from_csv", lambda: 1
         )
         monkeypatch.setattr(
             "app.services.ingestion.csv_loader.load_groups_from_csv", lambda: 0
@@ -353,7 +353,7 @@ class TestFullRefreshPipeline:
         monkeypatch.setattr("app.core.config.settings.MONTECARLO_ITERATIONS", 20)
 
         monkeypatch.setattr(
-            "app.services.ingestion.csv_loader.load_teams_from_csv", lambda: 0
+            "app.services.ingestion.csv_loader.load_teams_from_csv", lambda: 1
         )
         monkeypatch.setattr(
             "app.services.ingestion.csv_loader.load_groups_from_csv", lambda: 0
@@ -395,7 +395,7 @@ class TestFullRefreshPipeline:
         monkeypatch.setattr("app.core.config.settings.MONTECARLO_ITERATIONS", 20)
 
         monkeypatch.setattr(
-            "app.services.ingestion.csv_loader.load_teams_from_csv", lambda: 0
+            "app.services.ingestion.csv_loader.load_teams_from_csv", lambda: 1
         )
         monkeypatch.setattr(
             "app.services.ingestion.csv_loader.load_groups_from_csv", lambda: 0
@@ -449,7 +449,7 @@ class TestPipelineTasks:
         monkeypatch.setattr("app.core.config.settings.MONTECARLO_ITERATIONS", 20)
 
         monkeypatch.setattr(
-            "app.services.ingestion.csv_loader.load_teams_from_csv", lambda: 0
+            "app.services.ingestion.csv_loader.load_teams_from_csv", lambda: 1
         )
         monkeypatch.setattr(
             "app.services.ingestion.csv_loader.load_groups_from_csv", lambda: 0
