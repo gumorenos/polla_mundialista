@@ -147,6 +147,12 @@ services:
       - models_data:/app/data/models
     networks:
       - internal
+    healthcheck:
+      test: ["CMD", "python", "-c", "from app.core.config import settings; import redis; redis.Redis.from_url(settings.REDIS_URL).ping()"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
     deploy:
       resources:
         limits:

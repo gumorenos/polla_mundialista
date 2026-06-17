@@ -31,6 +31,11 @@ class TrainRequest(BaseModel):
     validation_split: float = Field(default=0.2, gt=0.0, lt=1.0)
 
 
+def _public_model(row: dict[str, Any]) -> dict[str, Any]:
+    """Remove filesystem metadata from public ML model responses."""
+    return {k: v for k, v in row.items() if k != "model_path"}
+
+
 # ---------------------------------------------------------------------------
 # POST /api/ml/train  — enqueue ML training job (admin only)
 # ---------------------------------------------------------------------------
@@ -91,7 +96,7 @@ def get_active_model() -> dict[str, Any]:
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No active ML model found. Run /api/ml/train first.",
         )
-    return row
+    return _public_model(row)
 
 
 # ---------------------------------------------------------------------------
@@ -102,7 +107,7 @@ def get_active_model() -> dict[str, Any]:
 def list_models() -> list[dict[str, Any]]:
     """Return all trained ML models ordered by Brier score."""
     with db_transaction() as conn:
-        return MLRepository(conn).list_models()
+        return [_public_model(row) for row in MLRepository(conn).list_models()]
 
 
 # ---------------------------------------------------------------------------

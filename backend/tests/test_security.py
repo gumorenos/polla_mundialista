@@ -291,6 +291,57 @@ class TestFix4Security:
         with pytest.raises((ValueError, FileNotFoundError)):
             _safe_load_model(str(models_dir / ".." / ".." / "etc" / "passwd"))
 
+    def test_public_active_model_omits_model_path(self):
+        """GET /api/ml/models/active must not expose filesystem model_path."""
+        from app.db.connection import db_transaction
+
+        with db_transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO ml_training_runs (id, algorithm, status)
+                VALUES ('tr-public', 'lightgbm', 'completed')
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO ml_models
+                    (id, training_run_id, algorithm, model_path, brier_score, is_active)
+                VALUES
+                    ('model-public', 'tr-public', 'lightgbm', '/app/data/models/secret.joblib', 0.25, 1)
+                """
+            )
+            conn.commit()
+
+        r = self.client.get("/api/ml/models/active")
+        assert r.status_code == 200
+        assert "model_path" not in r.json()
+
+    def test_public_model_list_omits_model_path(self):
+        """GET /api/ml/models must not expose filesystem model_path."""
+        from app.db.connection import db_transaction
+
+        with db_transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO ml_training_runs (id, algorithm, status)
+                VALUES ('tr-list', 'xgboost', 'completed')
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO ml_models
+                    (id, training_run_id, algorithm, model_path, brier_score, is_active)
+                VALUES
+                    ('model-list', 'tr-list', 'xgboost', '/app/data/models/list.joblib', 0.35, 0)
+                """
+            )
+            conn.commit()
+
+        r = self.client.get("/api/ml/models")
+        assert r.status_code == 200
+        assert r.json()
+        assert all("model_path" not in row for row in r.json())
+
     def test_public_jobs_endpoint_omits_sensitive_fields(self):
         """GET /api/jobs without admin credentials must not include error_message or result_ref."""
         r = self.client.get("/api/jobs")

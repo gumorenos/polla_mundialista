@@ -400,6 +400,20 @@ def _m005_admin_password_history(conn: sqlite3.Connection) -> None:
     _add_col(conn, "admin_password_history", "note", "TEXT")
 
 
+def _m006_admin_credentials(conn: sqlite3.Connection) -> None:
+    """Durable admin credential store for the web login password."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS admin_credentials (
+            id            TEXT PRIMARY KEY,
+            password_hash TEXT NOT NULL,
+            created_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+
+
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
@@ -410,6 +424,7 @@ _MIGRATIONS = [
     _m003_group_teams_position,
     _m004_jobs_last_heartbeat,
     _m005_admin_password_history,
+    _m006_admin_credentials,
 ]
 
 

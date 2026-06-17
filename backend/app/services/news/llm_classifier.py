@@ -152,5 +152,5 @@ def _parse_response(raw: str | None) -> dict[str, Any] | None:
         validated = InjuryClassification(**data)
         return validated.model_dump()
     except (json.JSONDecodeError, ValidationError, TypeError, KeyError) as exc:
-        logger.debug("_parse_response failed: %s — raw=%r", exc, raw[:200])
+        logger.debug("_parse_response failed: %s — raw=%r", exc, (raw or "")[:200])
         return None

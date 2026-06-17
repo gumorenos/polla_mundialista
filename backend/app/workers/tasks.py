@@ -262,14 +262,27 @@ def run_daily_update_task(
         )
         conn.commit()
         try:
-            with _HeartbeatUpdater(job_id):
+            with _HeartbeatUpdater(job_id) as hb:
+                if hb.cancel_event.is_set():
+                    raise InterruptedError(f"Job {job_id} cancellation requested")
                 result = run_daily_update(conn, job_id)
+                if hb.cancel_event.is_set():
+                    raise InterruptedError(f"Job {job_id} cancellation requested")
             job_repo.update_status(
                 job_id, "completed",
                 finished_at=datetime.now(timezone.utc).isoformat(),
             )
             conn.commit()
             return result
+        except InterruptedError:
+            logger.info("run_daily_update_task: job %s cancelled cleanly", job_id)
+            job_repo.update_status(
+                job_id, "cancelled",
+                finished_at=datetime.now(timezone.utc).isoformat(),
+                error_message="Cancelled by admin",
+            )
+            conn.commit()
+            return {}
         except Exception as exc:
             logger.exception("run_daily_update_task failed for job %s: %s", job_id, exc)
             job_repo.update_status(
@@ -317,12 +330,17 @@ def run_ml_training_task(
         )
         conn.commit()
         try:
-            result = train_ml_model(
-                conn,
-                algorithm=algorithm,
-                train_start_year=train_start_year,
-                validation_split=validation_split,
-            )
+            with _HeartbeatUpdater(job_id) as hb:
+                if hb.cancel_event.is_set():
+                    raise InterruptedError(f"Job {job_id} cancellation requested")
+                result = train_ml_model(
+                    conn,
+                    algorithm=algorithm,
+                    train_start_year=train_start_year,
+                    validation_split=validation_split,
+                )
+                if hb.cancel_event.is_set():
+                    raise InterruptedError(f"Job {job_id} cancellation requested")
             job_repo.update_progress(job_id, 1.0)
             job_repo.update_status(
                 job_id, "completed",
@@ -331,6 +349,15 @@ def run_ml_training_task(
             )
             conn.commit()
             return result
+        except InterruptedError:
+            logger.info("run_ml_training_task: job %s cancelled cleanly", job_id)
+            job_repo.update_status(
+                job_id, "cancelled",
+                finished_at=datetime.now(timezone.utc).isoformat(),
+                error_message="Cancelled by admin",
+            )
+            conn.commit()
+            return {}
         except Exception as exc:
             logger.exception("run_ml_training_task failed for job %s: %s", job_id, exc)
             job_repo.update_status(
@@ -397,7 +424,12 @@ def run_news_task(
         )
         conn.commit()
         try:
-            result = run_news_analysis(conn)
+            with _HeartbeatUpdater(job_id) as hb:
+                if hb.cancel_event.is_set():
+                    raise InterruptedError(f"Job {job_id} cancellation requested")
+                result = run_news_analysis(conn)
+                if hb.cancel_event.is_set():
+                    raise InterruptedError(f"Job {job_id} cancellation requested")
             job_repo.update_progress(job_id, 1.0)
             job_repo.update_status(
                 job_id, "completed",
@@ -405,6 +437,15 @@ def run_news_task(
             )
             conn.commit()
             return result
+        except InterruptedError:
+            logger.info("run_news_task: job %s cancelled cleanly", job_id)
+            job_repo.update_status(
+                job_id, "cancelled",
+                finished_at=datetime.now(timezone.utc).isoformat(),
+                error_message="Cancelled by admin",
+            )
+            conn.commit()
+            return {}
         except Exception as exc:
             logger.exception("run_news_task failed for job %s: %s", job_id, exc)
             job_repo.update_status(
