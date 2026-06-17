@@ -166,6 +166,102 @@ def get_latest(model: str = Query(default="poisson")) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# GET /api/simulations/diff
+# ---------------------------------------------------------------------------
+
+@router.get("/diff")
+def get_simulation_diff(model: str = Query(default="poisson")) -> dict[str, Any]:
+    """Compare the two most recent completed simulations for a model."""
+    from datetime import datetime, timezone
+
+    with db_transaction() as conn:
+        repo = SimulationRepository(conn)
+        runs = repo.get_two_latest_by_model(model)
+
+        if len(runs) < 2:
+            return {
+                "error": "no_previous_simulation",
+                "message": "Solo hay una simulación disponible para comparar",
+            }
+
+        current_run  = runs[0]
+        previous_run = runs[1]
+
+        cur_map  = {r["team_id"]: r for r in repo.get_team_results_by_run(current_run["id"])}
+        prev_map = {r["team_id"]: r for r in repo.get_team_results_by_run(previous_run["id"])}
+
+        teams: list[dict[str, Any]] = []
+        for team_id, cur in cur_map.items():
+            if team_id not in prev_map:
+                continue
+            prev = prev_map[team_id]
+
+            champion_delta = float(cur["win_tournament"]) - float(prev["win_tournament"])
+            top4_delta     = float(cur["reach_semi_final"])   - float(prev["reach_semi_final"])
+            top16_delta    = float(cur["reach_round_of_16"])  - float(prev["reach_round_of_16"])
+
+            if abs(champion_delta) < 0.005:
+                trend = "stable"
+            elif champion_delta > 0:
+                trend = "up"
+            else:
+                trend = "down"
+
+            teams.append({
+                "team_id":           team_id,
+                "team_name":         cur["team_name"],
+                "current_champion":  round(float(cur["win_tournament"]),    4),
+                "previous_champion": round(float(prev["win_tournament"]),   4),
+                "champion_delta":    round(champion_delta,                  4),
+                "current_top4":      round(float(cur["reach_semi_final"]),  4),
+                "previous_top4":     round(float(prev["reach_semi_final"]), 4),
+                "top4_delta":        round(top4_delta,                      4),
+                "current_top16":     round(float(cur["reach_round_of_16"]),  4),
+                "previous_top16":    round(float(prev["reach_round_of_16"]), 4),
+                "top16_delta":       round(top16_delta,                      4),
+                "trend":             trend,
+            })
+
+        teams.sort(key=lambda t: abs(t["champion_delta"]), reverse=True)
+
+        def _parse_dt(s: str | None) -> datetime:
+            if not s:
+                return datetime.now(timezone.utc)
+            try:
+                return datetime.fromisoformat(s.replace("Z", "+00:00"))
+            except Exception:
+                return datetime.now(timezone.utc)
+
+        hours_between = round(
+            (_parse_dt(current_run["finished_at"]) - _parse_dt(previous_run["finished_at"])).total_seconds() / 3600,
+            1,
+        )
+
+        biggest_movers = teams[:5]
+
+        summary_parts = [
+            f"{t['team_name']} ({'+' if t['champion_delta'] >= 0 else ''}{t['champion_delta'] * 100:.1f}%)"
+            for t in biggest_movers[:3]
+        ]
+        summary = (
+            f"{', '.join(summary_parts)} son los mayores movimientos desde la última simulación."
+            if summary_parts else "Sin cambios significativos."
+        )
+
+        return {
+            "model":               model,
+            "current_run_id":      current_run["id"],
+            "previous_run_id":     previous_run["id"],
+            "current_created_at":  current_run["finished_at"],
+            "previous_created_at": previous_run["finished_at"],
+            "hours_between":       hours_between,
+            "teams":               teams,
+            "biggest_movers":      biggest_movers,
+            "summary":             summary,
+        }
+
+
+# ---------------------------------------------------------------------------
 # GET /api/simulations/{run_id}
 # ---------------------------------------------------------------------------
 

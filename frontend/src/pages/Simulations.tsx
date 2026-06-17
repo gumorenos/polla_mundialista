@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { useRunSimulation, useSimulations, useSimulationComparison } from '../api/hooks'
-import type { TeamResult, SimulationComparisonTeam } from '../types'
+import { useRunSimulation, useSimulations, useSimulationComparison, useSimulationDiff } from '../api/hooks'
+import type { TeamResult, SimulationComparisonTeam, SimulationDiffTeam } from '../types'
 
 const MODELS = ['baseline', 'elo', 'poisson', 'poisson_context', 'ml_calibrated']
 
@@ -160,12 +160,116 @@ function ComparisonTable({ teams, models }: { teams: SimulationComparisonTeam[];
   )
 }
 
+// ---------------------------------------------------------------------------
+// Simulation diff components
+// ---------------------------------------------------------------------------
+
+function deltaColor(delta: number): string {
+  const pct = delta * 100
+  if (pct > 2) return 'text-green-400 font-bold'
+  if (pct > 0.5) return 'text-green-300'
+  if (pct >= -0.5) return 'text-gray-400'
+  if (pct >= -2) return 'text-red-300'
+  return 'text-red-400 font-bold'
+}
+
+function deltaBg(delta: number): string {
+  const pct = delta * 100
+  if (pct > 2) return 'bg-green-900/70 text-green-300'
+  if (pct > 0.5) return 'bg-green-900/40 text-green-400'
+  if (pct >= -0.5) return 'bg-gray-800 text-gray-400'
+  if (pct >= -2) return 'bg-red-900/40 text-red-400'
+  return 'bg-red-900/70 text-red-300'
+}
+
+function fmtDelta(delta: number) {
+  const pct = delta * 100
+  return (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%'
+}
+
+function MoverCard({ team }: { team: SimulationDiffTeam }) {
+  const up = team.trend === 'up'
+  const stable = team.trend === 'stable'
+  return (
+    <div className={`rounded-lg border px-4 py-3 flex items-center gap-3 ${
+      stable
+        ? 'border-gray-700 bg-gray-900/50'
+        : up
+        ? 'border-green-800/60 bg-green-950/30'
+        : 'border-red-800/60 bg-red-950/30'
+    }`}>
+      <span className={`text-xl ${stable ? 'text-gray-500' : up ? 'text-green-400' : 'text-red-400'}`}>
+        {stable ? '→' : up ? '↑' : '↓'}
+      </span>
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-semibold text-white truncate">{team.team_name}</div>
+        <div className={`text-xs font-mono ${stable ? 'text-gray-500' : up ? 'text-green-400' : 'text-red-400'}`}>
+          {fmtDelta(team.champion_delta)}
+        </div>
+      </div>
+      <div className="text-right text-xs text-gray-500">
+        <div>{fmt(team.previous_champion)}</div>
+        <div className="text-white">{fmt(team.current_champion)}</div>
+      </div>
+    </div>
+  )
+}
+
+function DiffExpandableTable({ teams }: { teams: SimulationDiffTeam[] }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="text-xs text-blue-400 hover:text-blue-300 underline underline-offset-2"
+      >
+        {open ? 'Ocultar tabla completa ↑' : 'Ver tabla completa de cambios ↓'}
+      </button>
+      {open && (
+        <div className="mt-3 overflow-x-auto rounded-lg border border-gray-800">
+          <table className="w-full text-xs">
+            <thead className="bg-gray-900">
+              <tr>
+                {['Equipo', 'Campeón antes', 'Campeón ahora', 'Cambio', 'Top 4 antes', 'Top 4 ahora', 'Cambio top4'].map((h) => (
+                  <th key={h} className="px-3 py-2 text-left font-semibold uppercase tracking-wider text-gray-400">
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {teams.map((t) => (
+                <tr key={t.team_id} className="border-t border-gray-800 hover:bg-gray-900/50">
+                  <td className="px-3 py-2 font-medium text-white whitespace-nowrap">{t.team_name}</td>
+                  <td className="px-3 py-2 font-mono text-gray-400">{fmt(t.previous_champion)}</td>
+                  <td className="px-3 py-2 font-mono text-gray-200">{fmt(t.current_champion)}</td>
+                  <td className="px-3 py-2">
+                    <span className={`inline-block rounded px-1.5 py-0.5 font-mono font-medium ${deltaBg(t.champion_delta)}`}>
+                      {fmtDelta(t.champion_delta)}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 font-mono text-gray-400">{fmt(t.previous_top4)}</td>
+                  <td className="px-3 py-2 font-mono text-gray-200">{fmt(t.current_top4)}</td>
+                  <td className={`px-3 py-2 font-mono ${deltaColor(t.top4_delta)}`}>
+                    {fmtDelta(t.top4_delta)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Simulations() {
   const [tab, setTab] = useState<'individual' | 'comparar'>('individual')
   const [model, setModel] = useState('poisson')
   const { data, isLoading, error } = useSimulations(model)
   const runSim = useRunSimulation()
   const comparison = useSimulationComparison()
+  const diff = useSimulationDiff(model)
 
   const modelsWithData = comparison.data
     ? comparison.data.models.filter((m) =>
@@ -262,6 +366,31 @@ export default function Simulations() {
                 </span>
               </div>
               <TeamTable rows={data.team_results} />
+
+              {/* Diff section */}
+              {diff.data && !('error' in diff.data) && (
+                <div className="space-y-4 pt-2">
+                  <div>
+                    <h3 className="text-sm font-semibold uppercase tracking-wider text-gray-400">
+                      Cambios desde la simulación anterior
+                    </h3>
+                    <p className="mt-1 text-xs text-gray-500">
+                      Comparando simulación de{' '}
+                      {new Date(diff.data.current_created_at).toLocaleString()} vs.{' '}
+                      simulación de hace {diff.data.hours_between}h
+                    </p>
+                    <p className="mt-1 text-xs text-gray-400 italic">{diff.data.summary}</p>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                    {diff.data.biggest_movers.map((team) => (
+                      <MoverCard key={team.team_id} team={team} />
+                    ))}
+                  </div>
+
+                  <DiffExpandableTable teams={diff.data.teams} />
+                </div>
+              )}
             </>
           )}
         </>

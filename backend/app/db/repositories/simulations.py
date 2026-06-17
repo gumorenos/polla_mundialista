@@ -88,6 +88,38 @@ class SimulationRepository:
             ).fetchone()
         )
 
+    def get_two_latest_by_model(self, model_name: str) -> list[dict[str, Any]]:
+        """Return the two most recent completed simulation runs for a model."""
+        rows = self._c.execute(
+            """
+            SELECT sr.* FROM simulation_runs sr
+            WHERE sr.model_name = ?
+              AND sr.status = 'completed'
+              AND EXISTS (
+                  SELECT 1 FROM simulation_team_results str
+                  WHERE str.simulation_run_id = sr.id
+              )
+            ORDER BY sr.finished_at DESC
+            LIMIT 2
+            """,
+            (model_name,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_team_results_by_run(self, run_id: str) -> list[dict[str, Any]]:
+        """Return team results for a specific run with team name."""
+        rows = self._c.execute(
+            """
+            SELECT str.*, t.name AS team_name
+            FROM simulation_team_results str
+            LEFT JOIN teams t ON str.team_id = t.id
+            WHERE str.simulation_run_id = ?
+            ORDER BY str.win_tournament DESC
+            """,
+            (run_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     # ------------------------------------------------------------------
     # Team results (INSERT only — no UPDATE)
     # ------------------------------------------------------------------

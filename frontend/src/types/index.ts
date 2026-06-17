@@ -147,6 +147,38 @@ export interface NewsSummaryResponse {
   teams: NewsTeamSummary[]
 }
 
+export interface SimulationDiffTeam {
+  team_id: string
+  team_name: string
+  current_champion: number
+  previous_champion: number
+  champion_delta: number
+  current_top4: number
+  previous_top4: number
+  top4_delta: number
+  current_top16: number
+  previous_top16: number
+  top16_delta: number
+  trend: 'up' | 'down' | 'stable'
+}
+
+export interface SimulationDiff {
+  model: string
+  current_run_id: string
+  previous_run_id: string
+  current_created_at: string
+  previous_created_at: string
+  hours_between: number
+  teams: SimulationDiffTeam[]
+  biggest_movers: SimulationDiffTeam[]
+  summary: string
+}
+
+export interface SimulationDiffError {
+  error: string
+  message: string
+}
+
 export interface SimulationComparisonTeam {
   team_id: string
   team_name: string

@@ -9,6 +9,7 @@ import type {
   NewsSummaryResponse,
   Snapshot,
   SimulationComparison,
+  SimulationDiff,
   SimulationRequest,
   SimulationSummary,
 } from '../../types'
@@ -29,6 +30,15 @@ export function useSimulationComparison() {
   return useQuery<SimulationComparison>({
     queryKey: ['simulations', 'comparison'],
     queryFn: () => api.get<SimulationComparison>('/api/simulations/comparison'),
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  })
+}
+
+export function useSimulationDiff(model: string) {
+  return useQuery<SimulationDiff>({
+    queryKey: ['simulation-diff', model],
+    queryFn: () => api.get<SimulationDiff>(`/api/simulations/diff?model=${encodeURIComponent(model)}`),
     staleTime: 5 * 60 * 1000,
     retry: false,
   })
