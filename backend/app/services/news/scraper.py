@@ -68,6 +68,28 @@ def extract_article_text(url: str) -> str:
         return ""
 
 
+def is_recent(date_str: str | None, days: int | None = None) -> bool:
+    """Return True if date_str falls within NEWS_DAYS_LOOKBACK days of now.
+
+    Accepts ISO-8601 strings (from DB) and RFC 2822 strings (from RSS pubDate).
+    Returns True on parse failure to avoid silently dropping news.
+    """
+    if not date_str:
+        return False
+    lookback = days if days is not None else settings.NEWS_DAYS_LOOKBACK
+    try:
+        from email.utils import parsedate_to_datetime
+        try:
+            dt = parsedate_to_datetime(date_str)
+        except Exception:
+            dt = datetime.fromisoformat(date_str)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc) - dt <= timedelta(days=lookback)
+    except Exception:
+        return True
+
+
 def source_credibility(domain: str) -> float:
     """Return credibility score 0-1 based on source domain.
 

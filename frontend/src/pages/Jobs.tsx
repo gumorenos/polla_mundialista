@@ -129,7 +129,7 @@ export default function Jobs() {
   }
 
   return (
-    <div className="p-8 space-y-6">
+    <div className="p-4 sm:p-8 space-y-6">
       <div>
         <h2 className="text-2xl font-bold text-white">Background Jobs</h2>
         <p className="mt-1 text-sm text-gray-400">
@@ -145,16 +145,13 @@ export default function Jobs() {
           <table className="w-full text-sm">
             <thead className="bg-gray-900">
               <tr>
-                {['Tipo', 'Estado', 'Progreso', 'Creado', 'Iniciado', 'Duración', 'Error', 'Acciones'].map(
-                  (h) => (
-                    <th
-                      key={h}
-                      className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-400"
-                    >
-                      {h}
-                    </th>
-                  ),
-                )}
+                {['Tipo', 'Estado', 'Progreso'].map((h) => (
+                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-400">{h}</th>
+                ))}
+                {['Creado', 'Iniciado', 'Duración', 'Error'].map((h) => (
+                  <th key={h} className="hidden md:table-cell px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-400">{h}</th>
+                ))}
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-400">Acciones</th>
               </tr>
             </thead>
             <tbody>
@@ -184,18 +181,18 @@ export default function Jobs() {
                       </span>
                     </div>
                   </td>
-                  <td className="px-4 py-2 text-gray-400 whitespace-nowrap">
+                  <td className="hidden md:table-cell px-4 py-2 text-gray-400 whitespace-nowrap">
                     {fmtDate(job.created_at)}
                   </td>
-                  <td className="px-4 py-2 text-gray-400 whitespace-nowrap">
+                  <td className="hidden md:table-cell px-4 py-2 text-gray-400 whitespace-nowrap">
                     {fmtDate(job.started_at)}
                   </td>
-                  <td className="px-4 py-2 whitespace-nowrap font-mono text-xs">
+                  <td className="hidden md:table-cell px-4 py-2 whitespace-nowrap font-mono text-xs">
                     <span className={isActive(job.status) ? (isStuck(job, now) ? 'text-amber-400' : 'text-green-300') : 'text-gray-400'}>
                       {jobDuration(job, now)}
                     </span>
                   </td>
-                  <td className="px-4 py-2 max-w-xs">
+                  <td className="hidden md:table-cell px-4 py-2 max-w-xs">
                     {job.error_message ? (
                       <span className="text-red-400 text-xs truncate block" title={job.error_message}>
                         {job.error_message}

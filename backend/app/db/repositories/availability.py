@@ -80,6 +80,18 @@ class AvailabilityRepository:
         )
         return adj_id
 
+    def expire_stale_claims(self, days_lookback: int) -> None:
+        """Mark claims older than *days_lookback* days as 'available'."""
+        self._c.execute(
+            """
+            UPDATE availability_claims
+               SET status = 'available'
+             WHERE observed_at < datetime('now', ?)
+               AND status NOT IN ('available', 'unknown')
+            """,
+            (f"-{days_lookback} days",),
+        )
+
     def get_by_player(self, player_key: str) -> list[dict[str, Any]]:
         rows = self._c.execute(
             """

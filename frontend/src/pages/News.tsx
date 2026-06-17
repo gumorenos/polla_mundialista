@@ -24,6 +24,25 @@ const CLASSIFICATION_OPTIONS = [
   { value: 'unknown', label: 'Sin datos' },
 ]
 
+function AgeBadge({ dateStr }: { dateStr: string }) {
+  const diffMs = Date.now() - new Date(dateStr).getTime()
+  const diffDays = diffMs / 86_400_000
+  const diffHours = Math.floor(diffMs / 3_600_000)
+
+  if (diffDays < 2) {
+    return <span className="inline-block rounded px-1.5 py-0.5 text-xs bg-green-900/60 text-green-300">{diffHours}h</span>
+  }
+  if (diffDays < 5) {
+    return <span className="inline-block rounded px-1.5 py-0.5 text-xs bg-yellow-900/60 text-yellow-300">{Math.floor(diffDays)}d</span>
+  }
+  return (
+    <span className="inline-flex gap-1 items-center flex-wrap">
+      <span className="inline-block rounded px-1.5 py-0.5 text-xs bg-red-900/60 text-red-300">{Math.floor(diffDays)}d</span>
+      <span className="inline-block rounded px-1.5 py-0.5 text-xs bg-red-900/60 text-red-300 font-medium">Antigua</span>
+    </span>
+  )
+}
+
 function StatusBadge({ status }: { status: string }) {
   return (
     <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${STATUS_COLORS[status] ?? 'bg-gray-800 text-gray-400'}`}>
@@ -94,8 +113,8 @@ function NewsRow({ item }: { item: NewsClaim }) {
           <span>{item.source_name ?? '—'}</span>
         )}
       </td>
-      <td className="px-4 py-2 text-xs text-gray-500 whitespace-nowrap">
-        {new Date(item.observed_at).toLocaleString()}
+      <td className="px-4 py-2 whitespace-nowrap">
+        <AgeBadge dateStr={item.observed_at} />
       </td>
     </tr>
   )
@@ -114,9 +133,9 @@ export default function News() {
   })
 
   return (
-    <div className="p-8 space-y-6">
+    <div className="p-4 sm:p-8 space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-2xl font-bold text-white">Noticias y Lesiones</h2>
           <p className="mt-1 text-sm text-gray-400">
@@ -131,7 +150,7 @@ export default function News() {
         <button
           onClick={() => triggerNews.mutate()}
           disabled={triggerNews.isPending}
-          className="rounded bg-blue-700 px-4 py-2 text-sm text-white hover:bg-blue-600 disabled:opacity-50"
+          className="rounded bg-blue-700 px-4 py-2 text-sm text-white hover:bg-blue-600 disabled:opacity-50 min-h-[44px] sm:w-auto"
         >
           {triggerNews.isPending ? 'Encolando…' : 'Actualizar Noticias'}
         </button>

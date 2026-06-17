@@ -43,6 +43,8 @@ def run_news_analysis(db_conn: sqlite3.Connection) -> dict[str, Any]:
     Returns:
         {"affected_teams": list[str], "injured_players": list[dict], "total_claims": int}
     """
+    _expire_stale_claims(db_conn)
+
     star_players = _load_star_players()
     if not star_players:
         logger.warning("No star players data — skipping news analysis")
@@ -148,6 +150,12 @@ def _analyze_player(
             confirmed_count += 1
 
     return confirmed_count >= settings.NEWS_MIN_SOURCES
+
+
+def _expire_stale_claims(conn: sqlite3.Connection) -> None:
+    """Mark availability claims older than NEWS_DAYS_LOOKBACK days as available."""
+    AvailabilityRepository(conn).expire_stale_claims(settings.NEWS_DAYS_LOOKBACK)
+    logger.debug("Expired stale claims older than %d days", settings.NEWS_DAYS_LOOKBACK)
 
 
 def _apply_penalties(

@@ -178,8 +178,8 @@ export default function Simulations() {
   }
 
   return (
-    <div className="p-8 space-y-6">
-      <div className="flex items-start justify-between">
+    <div className="p-4 sm:p-8 space-y-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-2xl font-bold text-white">Simulaciones Monte Carlo</h2>
           <p className="mt-1 text-sm text-gray-400">
@@ -187,11 +187,11 @@ export default function Simulations() {
           </p>
         </div>
         {tab === 'individual' && (
-          <div className="flex gap-3">
+          <div className="flex flex-col gap-2 sm:flex-row">
             <select
               value={model}
               onChange={(e) => setModel(e.target.value)}
-              className="rounded border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200"
+              className="rounded border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200 w-full sm:w-auto min-h-[44px]"
             >
               {MODELS.map((m) => (
                 <option key={m} value={m}>
@@ -202,7 +202,7 @@ export default function Simulations() {
             <button
               onClick={handleRun}
               disabled={runSim.isPending}
-              className="rounded bg-blue-700 px-4 py-2 text-sm text-white hover:bg-blue-600 disabled:opacity-50"
+              className="rounded bg-blue-700 px-4 py-2 text-sm text-white hover:bg-blue-600 disabled:opacity-50 min-h-[44px]"
             >
               {runSim.isPending ? 'Encolando…' : 'Simular'}
             </button>

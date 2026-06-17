@@ -39,24 +39,24 @@ export default function Dashboard() {
   const noToken = authData?.authenticated !== true
 
   return (
-    <div className="p-8 space-y-8">
-      <div className="flex items-start justify-between">
+    <div className="p-4 sm:p-8 space-y-8">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-2xl font-bold text-white">Oráculo Mundial 2026</h2>
           <p className="mt-1 text-sm text-gray-400">Vista general de predicciones</p>
         </div>
-        <div className="flex flex-col items-end gap-2">
+        <div className="flex flex-col gap-2 sm:items-end">
           {noToken && (
             <p className="text-xs text-yellow-500">
               Sesión no activa — acciones admin deshabilitadas
             </p>
           )}
-          <div className="flex gap-3">
+          <div className="flex flex-col gap-2 sm:flex-row">
             <button
               onClick={() => dailyUpdate.mutate()}
               disabled={dailyUpdate.isPending || noToken}
               title={noToken ? 'Inicia sesión para acciones admin' : undefined}
-              className="rounded bg-gray-700 px-4 py-2 text-sm text-gray-200 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="rounded bg-gray-700 px-4 py-2 text-sm text-gray-200 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
             >
               {dailyUpdate.isPending ? 'Encolando…' : 'Daily Update'}
             </button>
@@ -64,7 +64,7 @@ export default function Dashboard() {
               onClick={() => fullRefresh.mutate()}
               disabled={fullRefresh.isPending || noToken}
               title={noToken ? 'Inicia sesión para acciones admin' : undefined}
-              className="rounded bg-blue-700 px-4 py-2 text-sm text-white hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="rounded bg-blue-700 px-4 py-2 text-sm text-white hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
             >
               {fullRefresh.isPending ? 'Encolando…' : 'Full Refresh'}
             </button>
@@ -99,7 +99,7 @@ export default function Dashboard() {
             Sin datos. Ejecuta una simulación primero.
           </p>
         ) : (
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto"><table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-800 text-left text-xs text-gray-500">
                 <th className="pb-2 font-medium">#</th>
@@ -120,7 +120,7 @@ export default function Dashboard() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         )}
       </div>
     </div>
