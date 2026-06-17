@@ -162,7 +162,7 @@ def trigger_news_update(request: Request) -> dict[str, Any]:
     )
 
     with db_transaction() as conn:
-        JobRepository(conn).update_status(job_id, "enqueued", result_ref=rq_job.id)
+        JobRepository(conn).update_status(job_id, "enqueued", rq_job_id=rq_job.id)
         conn.commit()
 
     logger.info("News update enqueued: rq=%s db_job=%s", rq_job.id, job_id)

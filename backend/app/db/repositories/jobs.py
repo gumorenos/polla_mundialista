@@ -39,6 +39,7 @@ class JobRepository:
         finished_at: str | None = None,
         error_message: str | None = None,
         result_ref: str | None = None,
+        rq_job_id: str | None = None,
     ) -> None:
         self._c.execute(
             """
@@ -47,10 +48,11 @@ class JobRepository:
                 started_at    = COALESCE(?, started_at),
                 finished_at   = COALESCE(?, finished_at),
                 error_message = COALESCE(?, error_message),
-                result_ref    = COALESCE(?, result_ref)
+                result_ref    = COALESCE(?, result_ref),
+                rq_job_id     = COALESCE(?, rq_job_id)
             WHERE id = ?
             """,
-            (status, started_at, finished_at, error_message, result_ref, job_id),
+            (status, started_at, finished_at, error_message, result_ref, rq_job_id, job_id),
         )
 
     def update_progress(self, job_id: str, progress: float) -> None:

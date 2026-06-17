@@ -29,6 +29,78 @@ _BASE_URL = "https://api.football-data.org/v4"
 _WC_CODE = "WC"
 _WC_SEASON = 2026
 
+# Map football-data.org team name variants → our 3-letter team ID (TLA).
+# Used as primary resolution in _persist before falling back to name lookup.
+TEAM_NAME_ALIASES: dict[str, str] = {
+    "Bosnia-Herzegovina": "BIH",
+    "Bosnia and Herzegovina": "BIH",
+    "Cape Verde Islands": "CPV",
+    "Cape Verde": "CPV",
+    "Cabo Verde": "CPV",
+    "South Korea": "KOR",
+    "Korea Republic": "KOR",
+    "Republic of Korea": "KOR",
+    "USA": "USA",
+    "United States": "USA",
+    "United States of America": "USA",
+    "Ivory Coast": "CIV",
+    "Côte d'Ivoire": "CIV",
+    "Cote d'Ivoire": "CIV",
+    "Cote d Ivoire": "CIV",
+    "DR Congo": "COD",
+    "Congo DR": "COD",
+    "Democratic Republic of Congo": "COD",
+    "Democratic Republic of the Congo": "COD",
+    "Iran": "IRN",
+    "IR Iran": "IRN",
+    "Turkey": "TUR",
+    "Türkiye": "TUR",
+    "Czechia": "CZE",
+    "Czech Republic": "CZE",
+    "Netherlands": "NED",
+    "Holland": "NED",
+    "Switzerland": "SUI",
+    "New Zealand": "NZL",
+    "Saudi Arabia": "KSA",
+    "Curacao": "CUW",
+    "Curaçao": "CUW",
+    "Norway": "NOR",
+    "Sweden": "SWE",
+    "Scotland": "SCO",
+    "Algeria": "ALG",
+    "Austria": "AUT",
+    "Jordan": "JOR",
+    "Portugal": "POR",
+    "Colombia": "COL",
+    "Uzbekistan": "UZB",
+    "Croatia": "CRO",
+    "Ghana": "GHA",
+    "Panama": "PAN",
+    "Paraguay": "PAR",
+    "Australia": "AUS",
+    "Haiti": "HAI",
+    "Morocco": "MAR",
+    "Senegal": "SEN",
+    "Tunisia": "TUN",
+    "Egypt": "EGY",
+    "Belgium": "BEL",
+    "Iraq": "IRQ",
+    "Ecuador": "ECU",
+    "Germany": "GER",
+    "France": "FRA",
+    "Spain": "ESP",
+    "Argentina": "ARG",
+    "Brazil": "BRA",
+    "England": "ENG",
+    "Japan": "JPN",
+    "Uruguay": "URU",
+    "Mexico": "MEX",
+    "Canada": "CAN",
+    "Qatar": "QAT",
+    "South Africa": "RSA",
+    "Korea DPR": "KOR",
+}
+
 
 def _headers() -> dict[str, str]:
     return {
@@ -119,12 +191,18 @@ def fetch_matches_wc2026(known_team_ids: set[str] | None = None) -> list[dict[st
                     )
                     skipped += 1
                     continue
-            home_name = normalize_team_name(m.get("homeTeam", {}).get("name", ""))
-            away_name = normalize_team_name(m.get("awayTeam", {}).get("name", ""))
+            home_orig = m.get("homeTeam", {}).get("name", "")
+            away_orig = m.get("awayTeam", {}).get("name", "")
+            home_name = normalize_team_name(home_orig)
+            away_name = normalize_team_name(away_orig)
             utc_date = m.get("utcDate", "")[:10]
             matches.append({
                 "home_name": home_name,
+                "home_orig": home_orig,
+                "home_tla": home_tla,
                 "away_name": away_name,
+                "away_orig": away_orig,
+                "away_tla": away_tla,
                 "home_goals": int(home_goals),
                 "away_goals": int(away_goals),
                 "match_date": utc_date,
@@ -199,15 +277,31 @@ def ingest_football_data_fixtures(conn: sqlite3.Connection | None = None) -> int
     if not matches:
         return 0
 
+    def _resolve_id(c: sqlite3.Connection, team_repo: TeamRepository, orig: str, name: str, tla: str) -> str:
+        """Resolve team ID: alias dict → TLA direct lookup → name lookup → fallback."""
+        # 1. Check alias dict (maps football-data.org name variants → our TLA)
+        alias_tla = TEAM_NAME_ALIASES.get(orig)
+        if alias_tla:
+            return alias_tla
+        # 2. Try API TLA directly (it may already match our IDs)
+        if tla and c.execute("SELECT 1 FROM teams WHERE id=?", (tla,)).fetchone():
+            return tla
+        # 3. Try normalized Spanish name lookup
+        team = team_repo.get_by_name(name)
+        if team:
+            return team["id"]
+        logger.warning("football-data.org: cannot resolve team %r (tla=%r) — skipping", orig, tla)
+        return ""
+
     def _persist(c: sqlite3.Connection) -> int:
         team_repo = TeamRepository(c)
         result_repo = ResultRepository(c)
         count = 0
         for m in matches:
-            home_team = team_repo.get_by_name(m["home_name"])
-            away_team = team_repo.get_by_name(m["away_name"])
-            home_id = home_team["id"] if home_team else m["home_name"]
-            away_id = away_team["id"] if away_team else m["away_name"]
+            home_id = _resolve_id(c, team_repo, m["home_orig"], m["home_name"], m["home_tla"])
+            away_id = _resolve_id(c, team_repo, m["away_orig"], m["away_name"], m["away_tla"])
+            if not home_id or not away_id:
+                continue
             hg, ag = m["home_goals"], m["away_goals"]
             outcome = "W" if hg > ag else ("L" if hg < ag else "D")
             try:

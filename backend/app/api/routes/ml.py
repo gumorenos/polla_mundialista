@@ -62,7 +62,7 @@ def enqueue_ml_training(request: Request, body: TrainRequest) -> dict[str, Any]:
     )
 
     with db_transaction() as conn:
-        JobRepository(conn).update_status(job_id, "enqueued", result_ref=rq_job.id)
+        JobRepository(conn).update_status(job_id, "enqueued", rq_job_id=rq_job.id)
         conn.commit()
 
     logger.info(

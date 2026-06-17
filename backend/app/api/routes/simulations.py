@@ -64,7 +64,7 @@ def enqueue_simulation(request: Request, body: RunRequest) -> dict[str, Any]:
 
     with db_transaction() as conn:
         JobRepository(conn).update_status(job_id, "enqueued",
-                                          result_ref=rq_job.id)
+                                          rq_job_id=rq_job.id)
         conn.commit()
 
     return {

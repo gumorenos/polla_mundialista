@@ -48,7 +48,7 @@ def enqueue_full_refresh(request: Request) -> dict[str, Any]:
     )
 
     with db_transaction() as conn:
-        JobRepository(conn).update_status(job_id, "enqueued", result_ref=rq_job.id)
+        JobRepository(conn).update_status(job_id, "enqueued", rq_job_id=rq_job.id)
         conn.commit()
 
     logger.info("Full refresh enqueued: rq=%s db_job=%s", rq_job.id, job_id)
@@ -81,7 +81,7 @@ def enqueue_daily_update(request: Request) -> dict[str, Any]:
     )
 
     with db_transaction() as conn:
-        JobRepository(conn).update_status(job_id, "enqueued", result_ref=rq_job.id)
+        JobRepository(conn).update_status(job_id, "enqueued", rq_job_id=rq_job.id)
         conn.commit()
 
     logger.info("Daily update enqueued: rq=%s db_job=%s", rq_job.id, job_id)
@@ -122,7 +122,7 @@ def enqueue_all_models(request: Request) -> dict[str, Any]:
         )
 
         with db_transaction() as conn:
-            JobRepository(conn).update_status(job_id, "enqueued", result_ref=rq_job.id)
+            JobRepository(conn).update_status(job_id, "enqueued", rq_job_id=rq_job.id)
             conn.commit()
 
         jobs.append({
