@@ -21,7 +21,7 @@ from app.core.config import settings
 from app.db.connection import db_transaction
 from app.db.repositories.fixtures import ResultRepository
 from app.db.repositories.teams import TeamRepository
-from app.services.normalization.team_names import normalize_team_name
+from app.services.normalization.team_names import normalize_team_id, normalize_team_name
 
 logger = logging.getLogger(__name__)
 
@@ -70,9 +70,11 @@ def fetch_teams_wc2026() -> list[dict[str, Any]]:
         data = _get(f"competitions/{_WC_CODE}/teams", {"season": _WC_SEASON})
         teams = []
         for t in data.get("teams", []):
+            name = t.get("name", "")
+            team_id = (t.get("tla") or normalize_team_id(name) or "").upper()
             teams.append({
-                "team_id": t.get("tla", ""),
-                "name": normalize_team_name(t.get("name", "")),
+                "team_id": team_id,
+                "name": normalize_team_name(name),
                 "short_name": t.get("shortName", ""),
                 "area": t.get("area", {}).get("name", ""),
             })
@@ -108,8 +110,10 @@ def fetch_matches_wc2026(known_team_ids: set[str] | None = None) -> list[dict[st
             away_goals = score.get("away")
             if home_goals is None or away_goals is None:
                 continue
-            home_tla = (m.get("homeTeam", {}).get("tla") or "").upper()
-            away_tla = (m.get("awayTeam", {}).get("tla") or "").upper()
+            home_raw = m.get("homeTeam", {}).get("name", "")
+            away_raw = m.get("awayTeam", {}).get("name", "")
+            home_tla = (m.get("homeTeam", {}).get("tla") or normalize_team_id(home_raw) or "").upper()
+            away_tla = (m.get("awayTeam", {}).get("tla") or normalize_team_id(away_raw) or "").upper()
             if known_team_ids is not None:
                 if home_tla not in known_team_ids or away_tla not in known_team_ids:
                     logger.debug(
@@ -119,10 +123,12 @@ def fetch_matches_wc2026(known_team_ids: set[str] | None = None) -> list[dict[st
                     )
                     skipped += 1
                     continue
-            home_name = normalize_team_name(m.get("homeTeam", {}).get("name", ""))
-            away_name = normalize_team_name(m.get("awayTeam", {}).get("name", ""))
+            home_name = normalize_team_name(home_raw)
+            away_name = normalize_team_name(away_raw)
             utc_date = m.get("utcDate", "")[:10]
             matches.append({
+                "home_team_id": home_tla,
+                "away_team_id": away_tla,
                 "home_name": home_name,
                 "away_name": away_name,
                 "home_goals": int(home_goals),
@@ -158,7 +164,11 @@ def fetch_standings_wc2026() -> list[dict[str, Any]]:
                 standings.append({
                     "group": group,
                     "position": row.get("position"),
-                    "team_id": row.get("team", {}).get("tla", ""),
+                    "team_id": (
+                        row.get("team", {}).get("tla")
+                        or normalize_team_id(row.get("team", {}).get("name", ""))
+                        or ""
+                    ),
                     "team_name": normalize_team_name(row.get("team", {}).get("name", "")),
                     "played": row.get("playedGames", 0),
                     "won": row.get("won", 0),
@@ -204,8 +214,8 @@ def ingest_football_data_fixtures(conn: sqlite3.Connection | None = None) -> int
         result_repo = ResultRepository(c)
         count = 0
         for m in matches:
-            home_team = team_repo.get_by_name(m["home_name"])
-            away_team = team_repo.get_by_name(m["away_name"])
+            home_team = team_repo.get_by_id(m.get("home_team_id", "")) or team_repo.get_by_name(m["home_name"])
+            away_team = team_repo.get_by_id(m.get("away_team_id", "")) or team_repo.get_by_name(m["away_name"])
             home_id = home_team["id"] if home_team else m["home_name"]
             away_id = away_team["id"] if away_team else m["away_name"]
             hg, ag = m["home_goals"], m["away_goals"]

@@ -58,6 +58,11 @@ class JobRepository:
             "UPDATE jobs SET progress = ? WHERE id = ?", (progress, job_id)
         )
 
+    def update_rq_job_id(self, job_id: str, rq_job_id: str) -> None:
+        self._c.execute(
+            "UPDATE jobs SET rq_job_id = ? WHERE id = ?", (rq_job_id, job_id)
+        )
+
     def update_heartbeat(self, job_id: str) -> None:
         """Stamp last_heartbeat with the current UTC time."""
         self._c.execute(

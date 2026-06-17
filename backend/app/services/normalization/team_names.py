@@ -12,6 +12,128 @@ import unicodedata
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
+# External source aliases: any variant -> WC2026 team ID
+# ---------------------------------------------------------------------------
+
+TEAM_NAME_ALIASES: dict[str, str] = {
+    "Bosnia-Herzegovina": "BIH",
+    "Bosnia and Herzegovina": "BIH",
+    "Cape Verde Islands": "CPV",
+    "Cape Verde": "CPV",
+    "Cabo Verde": "CPV",
+    "South Korea": "KOR",
+    "Korea Republic": "KOR",
+    "Republic of Korea": "KOR",
+    "USA": "USA",
+    "United States": "USA",
+    "Ivory Coast": "CIV",
+    "Côte d'Ivoire": "CIV",
+    "Cote d'Ivoire": "CIV",
+    "DR Congo": "COD",
+    "Congo DR": "COD",
+    "Democratic Republic of Congo": "COD",
+    "Iran": "IRN",
+    "IR Iran": "IRN",
+    "Turkey": "TUR",
+    "Türkiye": "TUR",
+    "Czechia": "CZE",
+    "Czech Republic": "CZE",
+    "Netherlands": "NED",
+    "Holland": "NED",
+    "Switzerland": "SUI",
+    "New Zealand": "NZL",
+    "Saudi Arabia": "KSA",
+    "Curacao": "CUW",
+    "Curaçao": "CUW",
+    "Norway": "NOR",
+    "Sweden": "SWE",
+    "Scotland": "SCO",
+    "Algeria": "ALG",
+    "Austria": "AUT",
+    "Jordan": "JOR",
+    "Portugal": "POR",
+    "Colombia": "COL",
+    "Uzbekistan": "UZB",
+    "Croatia": "CRO",
+    "Ghana": "GHA",
+    "Panama": "PAN",
+    "Paraguay": "PAR",
+    "Australia": "AUS",
+    "Haiti": "HAI",
+    "Morocco": "MAR",
+    "Senegal": "SEN",
+    "Tunisia": "TUN",
+    "Egypt": "EGY",
+    "Belgium": "BEL",
+    "Iraq": "IRQ",
+    "Ecuador": "ECU",
+    "Germany": "GER",
+    "France": "FRA",
+    "Spain": "ESP",
+    "Argentina": "ARG",
+    "Brazil": "BRA",
+    "England": "ENG",
+    "Japan": "JPN",
+    "Uruguay": "URU",
+    "Mexico": "MEX",
+    "Canada": "CAN",
+    "Qatar": "QAT",
+    "South Africa": "RSA",
+}
+
+_CANONICAL_NAME_TO_ID: dict[str, str] = {
+    "Argentina": "ARG",
+    "Brasil": "BRA",
+    "Uruguay": "URU",
+    "Colombia": "COL",
+    "Ecuador": "ECU",
+    "Paraguay": "PAR",
+    "México": "MEX",
+    "Estados Unidos": "USA",
+    "Canadá": "CAN",
+    "Panamá": "PAN",
+    "Haití": "HAI",
+    "Curazao": "CUW",
+    "Alemania": "GER",
+    "Inglaterra": "ENG",
+    "Francia": "FRA",
+    "España": "ESP",
+    "Portugal": "POR",
+    "Países Bajos": "NED",
+    "Suiza": "SUI",
+    "Austria": "AUT",
+    "Bélgica": "BEL",
+    "Turquía": "TUR",
+    "Croacia": "CRO",
+    "Escocia": "SCO",
+    "Suecia": "SWE",
+    "Noruega": "NOR",
+    "República Checa": "CZE",
+    "Bosnia y Herzegovina": "BIH",
+    "Marruecos": "MAR",
+    "Senegal": "SEN",
+    "Egipto": "EGY",
+    "Ghana": "GHA",
+    "Costa de Marfil": "CIV",
+    "Sudáfrica": "RSA",
+    "Túnez": "TUN",
+    "Argelia": "ALG",
+    "Cabo Verde": "CPV",
+    "R.D. Congo": "COD",
+    "RD Congo": "COD",
+    "Japón": "JPN",
+    "Corea del Sur": "KOR",
+    "Australia": "AUS",
+    "Irán": "IRN",
+    "Arabia Saudita": "KSA",
+    "Jordania": "JOR",
+    "Irak": "IRQ",
+    "Uzbekistán": "UZB",
+    "Catar": "QAT",
+    "Nueva Zelanda": "NZL",
+}
+
+# ---------------------------------------------------------------------------
 # Alias map: any variant → canonical Spanish name
 # The canonical name is also the value, so lookups work both ways.
 # ---------------------------------------------------------------------------
@@ -117,6 +239,7 @@ _ALIASES: dict[str, str] = {
     "Finland": "Finlandia",
     "Finlandia": "Finlandia",
     "Israel": "Israel",
+    "Bosnia-Herzegovina": "Bosnia y Herzegovina",
     "Bosnia and Herzegovina": "Bosnia y Herzegovina",
     "Bosnia Herzegovina": "Bosnia y Herzegovina",
     "North Macedonia": "Macedonia del Norte",
@@ -154,6 +277,7 @@ _ALIASES: dict[str, str] = {
     "Túnez": "Túnez",
     "Congo DR": "R.D. Congo",
     "DR Congo": "R.D. Congo",
+    "Democratic Republic of Congo": "R.D. Congo",
     "Zambia": "Zambia",
     "Tanzania": "Tanzania",
     "Ethiopia": "Etiopía",
@@ -162,6 +286,8 @@ _ALIASES: dict[str, str] = {
     "Burkina Faso": "Burkina Faso",
     "Guinea": "Guinea",
     "Cape Verde": "Cabo Verde",
+    "Cape Verde Islands": "Cabo Verde",
+    "Cabo Verde": "Cabo Verde",
     "Angola": "Angola",
     "Zimbabwe": "Zimbabue",
     "Namibia": "Namibia",
@@ -217,6 +343,11 @@ _LOWER_MAP: dict[str, str] = {
     for k, v in _ALIASES.items()
 }
 
+_TEAM_ID_LOWER_MAP: dict[str, str] = {
+    unicodedata.normalize("NFC", k).casefold(): v
+    for k, v in {**TEAM_NAME_ALIASES, **_CANONICAL_NAME_TO_ID}.items()
+}
+
 
 def normalize_team_name(name: str) -> str:
     """Convert any team name variant to the canonical Spanish name.
@@ -237,6 +368,22 @@ def normalize_team_name(name: str) -> str:
 
     logger.warning("No canonical mapping for team name: %r — returning as-is", stripped)
     return stripped
+
+
+def normalize_team_id(name: str) -> str | None:
+    """Return the WC2026 team ID for a known external team-name variant."""
+    stripped = name.strip()
+    if not stripped:
+        return None
+    upper = stripped.upper()
+    if upper in set(_CANONICAL_NAME_TO_ID.values()):
+        return upper
+    if stripped in TEAM_NAME_ALIASES:
+        return TEAM_NAME_ALIASES[stripped]
+    if stripped in _CANONICAL_NAME_TO_ID:
+        return _CANONICAL_NAME_TO_ID[stripped]
+    key = unicodedata.normalize("NFC", stripped).casefold()
+    return _TEAM_ID_LOWER_MAP.get(key)
 
 
 def canonical_names() -> list[str]:

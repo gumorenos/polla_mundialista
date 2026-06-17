@@ -66,9 +66,12 @@ def enqueue_ml_training(request: Request, body: TrainRequest) -> dict[str, Any]:
         job_timeout=settings.RQ_LONG_TIMEOUT,
     )
 
-    with db_transaction() as conn:
-        JobRepository(conn).update_status(job_id, "enqueued", result_ref=rq_job.id)
-        conn.commit()
+    try:
+        with db_transaction() as conn:
+            JobRepository(conn).update_rq_job_id(job_id, rq_job.id)
+            conn.commit()
+    except Exception:
+        logger.exception("ML training enqueued in RQ but rq_job_id update failed: db_job=%s rq=%s", job_id, rq_job.id)
 
     logger.info(
         "ML training enqueued: rq=%s db_job=%s algo=%s",

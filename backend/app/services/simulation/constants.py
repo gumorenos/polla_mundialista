@@ -4,17 +4,17 @@ from __future__ import annotations
 
 # WC2026 group composition — official draw (Dec 2025), tournament start Jun 11 2026
 GROUPS_2026: dict[str, list[str]] = {
-    "A": ["MEX", "RSA", "KOR", "CZE"],
-    "B": ["CAN", "BIH", "QAT", "SUI"],
+    "A": ["MEX", "KOR", "RSA", "CZE"],
+    "B": ["CAN", "SUI", "BIH", "QAT"],
     "C": ["BRA", "MAR", "HAI", "SCO"],
     "D": ["USA", "PAR", "AUS", "TUR"],
-    "E": ["GER", "CUW", "CIV", "ECU"],
+    "E": ["GER", "ECU", "CIV", "CUW"],
     "F": ["NED", "JPN", "SWE", "TUN"],
-    "G": ["BEL", "EGY", "IRN", "NZL"],
-    "H": ["ESP", "CPV", "KSA", "URU"],
-    "I": ["FRA", "SEN", "IRQ", "NOR"],
+    "G": ["BEL", "IRN", "EGY", "NZL"],
+    "H": ["ESP", "URU", "KSA", "CPV"],
+    "I": ["FRA", "SEN", "NOR", "IRQ"],
     "J": ["ARG", "ALG", "AUT", "JOR"],
-    "K": ["POR", "COD", "UZB", "COL"],
+    "K": ["POR", "COL", "COD", "UZB"],
     "L": ["ENG", "CRO", "GHA", "PAN"],
 }
 

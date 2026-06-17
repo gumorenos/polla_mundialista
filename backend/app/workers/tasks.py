@@ -77,7 +77,7 @@ def ping_task() -> str:
     return "pong"
 
 
-def run_ingestion_pipeline() -> dict:
+def run_ingestion_pipeline(job_id: str | None = None) -> dict:
     """Full ingestion pipeline: teams → groups → fixtures → ELO → historical results.
 
     Runs sequentially in a single RQ worker process.
@@ -92,18 +92,54 @@ def run_ingestion_pipeline() -> dict:
     )
     from app.services.ingestion.elo_scraper import ingest_elo_ratings
 
+    job_repo = None
+    conn = None
+    if job_id is not None:
+        from app.db.connection import get_connection
+        from app.db.repositories.jobs import JobRepository
+
+        conn = get_connection()
+        job_repo = JobRepository(conn)
+        job_repo.update_status(
+            job_id, "running",
+            started_at=datetime.now(timezone.utc).isoformat(),
+        )
+        conn.commit()
+
     logger.info("Starting full ingestion pipeline")
 
-    summary: dict[str, int] = {}
-    summary["teams"]   = load_teams_from_csv()
-    summary["groups"]  = load_groups_from_csv()
-    summary["fixtures"] = load_fixtures_from_csv()
-    summary["ratings_csv"] = load_ratings_from_csv()
-    summary["elo_live"]    = ingest_elo_ratings()
-    summary["historical"]  = load_historical_results_from_csv()
+    try:
+        summary: dict[str, int] = {}
+        summary["teams"]   = load_teams_from_csv()
+        summary["groups"]  = load_groups_from_csv()
+        summary["fixtures"] = load_fixtures_from_csv()
+        summary["ratings_csv"] = load_ratings_from_csv()
+        summary["elo_live"]    = ingest_elo_ratings()
+        summary["historical"]  = load_historical_results_from_csv()
 
-    logger.info("Ingestion pipeline complete: %s", summary)
-    return summary
+        if job_repo and conn:
+            job_repo.update_progress(job_id, 1.0)
+            job_repo.update_status(
+                job_id,
+                "completed",
+                finished_at=datetime.now(timezone.utc).isoformat(),
+            )
+            conn.commit()
+        logger.info("Ingestion pipeline complete: %s", summary)
+        return summary
+    except Exception as exc:
+        if job_repo and conn:
+            job_repo.update_status(
+                job_id,
+                "failed",
+                finished_at=datetime.now(timezone.utc).isoformat(),
+                error_message=str(exc),
+            )
+            conn.commit()
+        raise
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 def run_simulation_task(
