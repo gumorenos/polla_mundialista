@@ -57,6 +57,7 @@ def list_news(
                 ac.evidence_level,
                 ac.affects_prediction,
                 ac.observed_at,
+                ac.published_at,
                 ac.created_at
             FROM availability_claims ac
             LEFT JOIN teams t ON ac.team_id = t.id

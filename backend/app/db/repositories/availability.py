@@ -21,11 +21,11 @@ class AvailabilityRepository:
             INSERT OR IGNORE INTO availability_claims
                 (id, team_id, player_name, player_key, status, reason,
                  source_url, source_name, confidence, evidence_level,
-                 observed_at, affects_prediction, raw_json)
+                 observed_at, published_at, affects_prediction, raw_json)
             VALUES
                 (:id, :team_id, :player_name, :player_key, :status, :reason,
                  :source_url, :source_name, :confidence, :evidence_level,
-                 :observed_at, :affects_prediction, :raw_json)
+                 :observed_at, :published_at, :affects_prediction, :raw_json)
             """,
             {
                 "id":                 claim_id,
@@ -39,6 +39,7 @@ class AvailabilityRepository:
                 "confidence":         claim.get("confidence"),
                 "evidence_level":     claim.get("evidence_level"),
                 "observed_at":        claim["observed_at"],
+                "published_at":       claim.get("published_at"),
                 "affects_prediction": int(claim.get("affects_prediction", False)),
                 "raw_json":           claim.get("raw_json"),
             },

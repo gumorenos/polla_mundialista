@@ -142,6 +142,7 @@ def _analyze_player(
             "confidence":       classification["confidence"],
             "evidence_level":   "confirmed" if affects else "speculation",
             "observed_at":      datetime.now(timezone.utc).isoformat(),
+            "published_at":     article.get("published_at"),
             "affects_prediction": affects,
             "raw_json":         json.dumps(classification),
         })

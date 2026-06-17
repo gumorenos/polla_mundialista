@@ -24,24 +24,9 @@ const CLASSIFICATION_OPTIONS = [
   { value: 'unknown', label: 'Sin datos' },
 ]
 
-function AgeBadge({ dateStr }: { dateStr: string }) {
-  const diffMs = Date.now() - new Date(dateStr).getTime()
-  const diffDays = diffMs / 86_400_000
-  const diffHours = Math.floor(diffMs / 3_600_000)
-
-  if (diffDays < 2) {
-    return <span className="inline-block rounded px-1.5 py-0.5 text-xs bg-green-900/60 text-green-300">{diffHours}h</span>
-  }
-  if (diffDays < 5) {
-    return <span className="inline-block rounded px-1.5 py-0.5 text-xs bg-yellow-900/60 text-yellow-300">{Math.floor(diffDays)}d</span>
-  }
-  return (
-    <span className="inline-flex gap-1 items-center flex-wrap">
-      <span className="inline-block rounded px-1.5 py-0.5 text-xs bg-red-900/60 text-red-300">{Math.floor(diffDays)}d</span>
-      <span className="inline-block rounded px-1.5 py-0.5 text-xs bg-red-900/60 text-red-300 font-medium">Antigua</span>
-    </span>
-  )
-}
+// ---------------------------------------------------------------------------
+// Badges
+// ---------------------------------------------------------------------------
 
 function StatusBadge({ status }: { status: string }) {
   return (
@@ -51,6 +36,44 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
+function AgeBadge({ dateStr }: { dateStr: string | null }) {
+  if (!dateStr) {
+    return <span className="text-xs text-gray-600">Fecha desconocida</span>
+  }
+  const diffMs = Date.now() - new Date(dateStr).getTime()
+  const diffDays = diffMs / 86_400_000
+  const diffHours = Math.floor(diffMs / 3_600_000)
+
+  if (diffDays < 2) {
+    return (
+      <span className="inline-block rounded px-1.5 py-0.5 text-xs bg-green-900/60 text-green-300">
+        {diffHours}h
+      </span>
+    )
+  }
+  if (diffDays < 7) {
+    return (
+      <span className="inline-block rounded px-1.5 py-0.5 text-xs bg-yellow-900/60 text-yellow-300">
+        {Math.floor(diffDays)}d
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex gap-1 items-center flex-wrap">
+      <span className="inline-block rounded px-1.5 py-0.5 text-xs bg-red-900/60 text-red-300">
+        {Math.floor(diffDays)}d
+      </span>
+      <span className="inline-block rounded px-1.5 py-0.5 text-xs bg-red-900/60 text-red-300 font-medium">
+        Antigua
+      </span>
+    </span>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Team summary card
+// ---------------------------------------------------------------------------
+
 function TeamSummaryCard({ team }: { team: NewsTeamSummary }) {
   const attackImpact = team.attack_factor != null ? ((1 - team.attack_factor) * 100).toFixed(0) : null
   const defenseImpact = team.defense_factor != null ? ((team.defense_factor - 1) * 100).toFixed(0) : null
@@ -59,7 +82,9 @@ function TeamSummaryCard({ team }: { team: NewsTeamSummary }) {
     <div className="rounded-lg border border-red-900/50 bg-red-950/30 p-4 space-y-2">
       <div className="flex items-center justify-between">
         <span className="font-semibold text-white text-sm">{team.team_name}</span>
-        <span className="text-xs text-red-400 font-medium">{team.injury_count} afectado{team.injury_count !== 1 ? 's' : ''}</span>
+        <span className="text-xs text-red-400 font-medium">
+          {team.injury_count} afectado{team.injury_count !== 1 ? 's' : ''}
+        </span>
       </div>
       <div className="flex flex-wrap gap-1">
         {team.players_affected.map((p) => (
@@ -78,33 +103,51 @@ function TeamSummaryCard({ team }: { team: NewsTeamSummary }) {
   )
 }
 
+// ---------------------------------------------------------------------------
+// Table row
+// ---------------------------------------------------------------------------
+
 function NewsRow({ item }: { item: NewsClaim }) {
   return (
-    <tr className="border-t border-gray-800 hover:bg-gray-900">
-      <td className="px-4 py-2 text-sm font-medium text-white">{item.player_name}</td>
-      <td className="px-4 py-2 text-sm text-gray-300">{item.team_name}</td>
-      <td className="px-4 py-2">
+    <tr className="border-t border-gray-800 hover:bg-gray-900/50">
+      {/* Jugador — always visible */}
+      <td className="px-3 py-2 text-sm font-medium text-white whitespace-nowrap">
+        {item.player_name}
+      </td>
+
+      {/* Equipo — always visible */}
+      <td className="px-3 py-2 text-sm text-gray-300 whitespace-nowrap">
+        {item.team_name}
+      </td>
+
+      {/* Estado — always visible */}
+      <td className="px-3 py-2">
         <StatusBadge status={item.status} />
       </td>
-      <td className="px-4 py-2 text-xs text-gray-400 max-w-xs">
-        <span title={item.reason ?? ''} className="truncate block max-w-[200px]">
+
+      {/* Razón (titular noticia) — hidden on mobile */}
+      <td className="hidden md:table-cell px-3 py-2 text-xs text-gray-400 max-w-0">
+        <div
+          className="line-clamp-2 leading-snug"
+          title={item.reason ?? ''}
+        >
           {item.reason ?? '—'}
-        </span>
+        </div>
       </td>
-      <td className="px-4 py-2 text-xs">
-        {item.confidence != null ? (
-          <span className={item.confidence >= 0.7 ? 'text-green-400' : 'text-gray-400'}>
-            {(item.confidence * 100).toFixed(0)}%
-          </span>
-        ) : '—'}
+
+      {/* Fecha publicación — always visible */}
+      <td className="px-3 py-2 whitespace-nowrap">
+        <AgeBadge dateStr={item.published_at} />
       </td>
-      <td className="px-4 py-2 text-xs text-gray-400">
+
+      {/* Fuente — hidden on mobile */}
+      <td className="hidden md:table-cell px-3 py-2 text-xs text-gray-400 whitespace-nowrap">
         {item.source_url ? (
           <a
             href={item.source_url}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-blue-400 hover:underline truncate block max-w-[120px]"
+            className="text-blue-400 hover:underline"
             title={item.source_url}
           >
             {item.source_name ?? new URL(item.source_url).hostname}
@@ -113,12 +156,13 @@ function NewsRow({ item }: { item: NewsClaim }) {
           <span>{item.source_name ?? '—'}</span>
         )}
       </td>
-      <td className="px-4 py-2 whitespace-nowrap">
-        <AgeBadge dateStr={item.observed_at} />
-      </td>
     </tr>
   )
 }
+
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
 
 export default function News() {
   const [classificationFilter, setClassificationFilter] = useState('')
@@ -215,23 +259,41 @@ export default function News() {
 
       {data && (
         <div className="overflow-x-auto rounded-lg border border-gray-800">
-          <table className="w-full text-sm">
+          <table className="w-full table-fixed text-sm">
+            <colgroup>
+              <col className="w-[18%]" />   {/* Jugador */}
+              <col className="w-[13%]" />   {/* Equipo */}
+              <col className="w-[10%]" />   {/* Estado */}
+              <col className="hidden md:table-column w-[34%]" />  {/* Razón */}
+              <col className="w-[10%]" />   {/* Fecha */}
+              <col className="hidden md:table-column w-[15%]" />  {/* Fuente */}
+            </colgroup>
             <thead className="bg-gray-900">
               <tr>
-                {['Jugador', 'Equipo', 'Estado', 'Razón', 'Confianza', 'Fuente', 'Observado'].map((h) => (
-                  <th
-                    key={h}
-                    className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-400"
-                  >
-                    {h}
-                  </th>
-                ))}
+                <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-400">
+                  Jugador
+                </th>
+                <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-400">
+                  Equipo
+                </th>
+                <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-400">
+                  Estado
+                </th>
+                <th className="hidden md:table-cell px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-400">
+                  Razón
+                </th>
+                <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-400">
+                  Publicado
+                </th>
+                <th className="hidden md:table-cell px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-400">
+                  Fuente
+                </th>
               </tr>
             </thead>
             <tbody>
               {data.items.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-6 text-center text-gray-500">
+                  <td colSpan={6} className="px-4 py-6 text-center text-gray-500">
                     Sin noticias analizadas aún. Pulsa «Actualizar Noticias» para iniciar.
                   </td>
                 </tr>

@@ -124,6 +124,7 @@ export interface NewsClaim {
   evidence_level: string | null
   affects_prediction: number
   observed_at: string
+  published_at: string | null
   created_at: string
 }
 

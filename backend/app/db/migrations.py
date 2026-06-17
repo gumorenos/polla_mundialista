@@ -414,6 +414,11 @@ def _m006_admin_credentials(conn: sqlite3.Connection) -> None:
     )
 
 
+def _m007_availability_published_at(conn: sqlite3.Connection) -> None:
+    """Add published_at column to availability_claims for the RSS article date."""
+    _add_col(conn, "availability_claims", "published_at", "TEXT")
+
+
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
@@ -425,6 +430,7 @@ _MIGRATIONS = [
     _m004_jobs_last_heartbeat,
     _m005_admin_password_history,
     _m006_admin_credentials,
+    _m007_availability_published_at,
 ]
 
 

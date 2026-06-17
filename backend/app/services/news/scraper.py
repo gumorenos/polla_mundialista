@@ -127,6 +127,8 @@ def _fetch_url(url: str) -> httpx.Response:
 def _fetch_google_news_rss(
     player: str, country: str, days_back: int
 ) -> list[dict]:
+    from email.utils import parsedate_to_datetime
+
     query = urllib.parse.quote(f"{player} {country} injury lesion")
     url = (
         f"https://news.google.com/rss/search"
@@ -152,12 +154,26 @@ def _fetch_google_news_rss(
         snippet = (item.findtext("description") or "").strip()
         pub_str = (item.findtext("pubDate") or "").strip()
 
-        try:
-            pub_dt = datetime.strptime(pub_str, "%a, %d %b %Y %H:%M:%S %z")
-        except ValueError:
-            pub_dt = datetime.now(timezone.utc)
+        if not pub_str:
+            logger.warning("Article without pubDate rejected: '%s'", title[:60])
+            continue
 
-        if pub_dt < cutoff:
+        try:
+            pub_dt = parsedate_to_datetime(pub_str)
+        except Exception:
+            logger.warning("Unparseable pubDate '%s' in article '%s' — skipping", pub_str, title[:60])
+            continue
+
+        if pub_dt.tzinfo is None:
+            pub_dt = pub_dt.replace(tzinfo=timezone.utc)
+
+        recent = pub_dt >= cutoff
+        logger.info(
+            "Article: '%s' | published: %s | recent: %s",
+            title[:50], pub_dt.isoformat(), recent,
+        )
+
+        if not recent:
             continue
 
         items.append({
