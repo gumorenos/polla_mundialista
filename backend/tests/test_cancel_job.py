@@ -123,3 +123,71 @@ def test_cancelled_job_status_persisted(setup, _mock_rq):
     assert job is not None
     assert job["status"] == "cancelled"
     assert job["finished_at"] is not None
+
+
+class _FakeHeartbeat:
+    calls: list[str] = []
+
+    def __init__(self, job_id: str):
+        import threading
+
+        self.job_id = job_id
+        self.cancel_event = threading.Event()
+
+    def __enter__(self):
+        self.calls.append(self.job_id)
+        return self
+
+    def __exit__(self, *_):
+        return None
+
+
+def test_ml_training_task_uses_heartbeat(setup, monkeypatch):
+    from app.workers.tasks import run_ml_training_task
+
+    _FakeHeartbeat.calls = []
+    job_id = _insert_job(setup, "enqueued")
+    monkeypatch.setattr("app.workers.tasks._HeartbeatUpdater", _FakeHeartbeat)
+    monkeypatch.setattr(
+        "app.services.ml.trainer.train_ml_model",
+        lambda *args, **kwargs: {"model_id": "model-1"},
+    )
+
+    result = run_ml_training_task(job_id)
+
+    assert result["model_id"] == "model-1"
+    assert _FakeHeartbeat.calls == [job_id]
+
+
+def test_news_task_uses_heartbeat(setup, monkeypatch):
+    from app.workers.tasks import run_news_task
+
+    _FakeHeartbeat.calls = []
+    job_id = _insert_job(setup, "enqueued")
+    monkeypatch.setattr("app.workers.tasks._HeartbeatUpdater", _FakeHeartbeat)
+    monkeypatch.setattr(
+        "app.services.news.availability.run_news_analysis",
+        lambda *args, **kwargs: {"affected_teams": []},
+    )
+
+    result = run_news_task(job_id)
+
+    assert result == {"affected_teams": []}
+    assert _FakeHeartbeat.calls == [job_id]
+
+
+def test_daily_update_task_uses_heartbeat(setup, monkeypatch):
+    from app.workers.tasks import run_daily_update_task
+
+    _FakeHeartbeat.calls = []
+    job_id = _insert_job(setup, "enqueued")
+    monkeypatch.setattr("app.workers.tasks._HeartbeatUpdater", _FakeHeartbeat)
+    monkeypatch.setattr(
+        "app.services.jobs.pipeline.run_daily_update",
+        lambda *args, **kwargs: {"simulations": {}},
+    )
+
+    result = run_daily_update_task(job_id)
+
+    assert result == {"simulations": {}}
+    assert _FakeHeartbeat.calls == [job_id]

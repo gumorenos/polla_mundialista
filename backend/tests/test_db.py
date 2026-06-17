@@ -325,6 +325,18 @@ class TestJobRepository:
         job = repo.get_by_id(job_id)
         assert abs(job["progress"] - 0.5) < 0.001
 
+    def test_update_rq_job_id(self, db):
+        repo = JobRepository(db)
+        job_id = repo.create({"job_type": "simulation"})
+        db.commit()
+
+        repo.update_rq_job_id(job_id, "rq-visible-123")
+        db.commit()
+
+        job = repo.get_by_id(job_id)
+        assert job["rq_job_id"] == "rq-visible-123"
+        assert job["result_ref"] is None
+
     def test_list_recent(self, db):
         repo = JobRepository(db)
         jobs = repo.list_recent(10)

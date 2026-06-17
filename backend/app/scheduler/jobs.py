@@ -25,8 +25,14 @@ def enqueue_full_refresh() -> None:
 
         redis_conn = Redis.from_url(settings.REDIS_URL)
         q = Queue("long", connection=redis_conn)
-        q.enqueue(run_full_refresh_task, job_id, job_timeout=settings.RQ_LONG_TIMEOUT)
-        logger.info("Scheduled full_refresh enqueued — db_job=%s", job_id)
+        rq_job = q.enqueue(run_full_refresh_task, job_id, job_timeout=settings.RQ_LONG_TIMEOUT)
+        try:
+            with db_transaction() as conn:
+                JobRepository(conn).update_rq_job_id(job_id, rq_job.id)
+                conn.commit()
+        except Exception:
+            logger.exception("Scheduled full_refresh enqueued in RQ but rq_job_id update failed: db_job=%s rq=%s", job_id, rq_job.id)
+        logger.info("Scheduled full_refresh enqueued — rq=%s db_job=%s", rq_job.id, job_id)
     except Exception:
         logger.exception("enqueue_full_refresh failed")
 
@@ -48,8 +54,14 @@ def enqueue_news_update() -> None:
 
         redis_conn = Redis.from_url(settings.REDIS_URL)
         q = Queue("news", connection=redis_conn)
-        q.enqueue(run_news_task, job_id, job_timeout=settings.RQ_DEFAULT_TIMEOUT)
-        logger.info("Scheduled news_update enqueued — db_job=%s", job_id)
+        rq_job = q.enqueue(run_news_task, job_id, job_timeout=settings.RQ_DEFAULT_TIMEOUT)
+        try:
+            with db_transaction() as conn:
+                JobRepository(conn).update_rq_job_id(job_id, rq_job.id)
+                conn.commit()
+        except Exception:
+            logger.exception("Scheduled news_update enqueued in RQ but rq_job_id update failed: db_job=%s rq=%s", job_id, rq_job.id)
+        logger.info("Scheduled news_update enqueued — rq=%s db_job=%s", rq_job.id, job_id)
     except Exception:
         logger.exception("enqueue_news_update failed")
 

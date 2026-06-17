@@ -29,7 +29,7 @@ from app.core.config import settings
 from app.db.connection import db_transaction
 from app.db.repositories.fixtures import ResultRepository
 from app.db.repositories.teams import TeamRepository
-from app.services.normalization.team_names import normalize_team_name
+from app.services.normalization.team_names import normalize_team_id, normalize_team_name
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +112,8 @@ def _parse_fixture(item: dict[str, Any]) -> dict[str, Any] | None:
         match_date = fixture["date"][:10]  # ISO date
 
         return {
+            "home_team_id": normalize_team_id(home_name),
+            "away_team_id": normalize_team_id(away_name),
             "home_name":   normalize_team_name(home_name),
             "away_name":   normalize_team_name(away_name),
             "home_goals":  int(home_goals),
@@ -190,8 +192,8 @@ def ingest_api_fixtures(
         result_repo = ResultRepository(c)
         count = 0
         for f in fixtures:
-            home_team = team_repo.get_by_name(f["home_name"])
-            away_team = team_repo.get_by_name(f["away_name"])
+            home_team = team_repo.get_by_id(f.get("home_team_id") or "") or team_repo.get_by_name(f["home_name"])
+            away_team = team_repo.get_by_id(f.get("away_team_id") or "") or team_repo.get_by_name(f["away_name"])
             home_id = home_team["id"] if home_team else f["home_name"]
             away_id = away_team["id"] if away_team else f["away_name"]
 

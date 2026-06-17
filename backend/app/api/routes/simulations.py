@@ -62,10 +62,12 @@ def enqueue_simulation(request: Request, body: RunRequest) -> dict[str, Any]:
         job_timeout=settings.RQ_LONG_TIMEOUT,
     )
 
-    with db_transaction() as conn:
-        JobRepository(conn).update_status(job_id, "enqueued",
-                                          rq_job_id=rq_job.id)
-        conn.commit()
+    try:
+        with db_transaction() as conn:
+            JobRepository(conn).update_rq_job_id(job_id, rq_job.id)
+            conn.commit()
+    except Exception:
+        logger.exception("Simulation job enqueued in RQ but rq_job_id update failed: db_job=%s rq=%s", job_id, rq_job.id)
 
     return {
         "job_id":     job_id,

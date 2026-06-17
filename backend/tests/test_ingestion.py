@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import sqlite3
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -10,9 +11,44 @@ import pytest
 
 from app.db.migrations import run_migrations
 from app.db.repositories.teams import TeamRepository
-from app.services.normalization.team_names import normalize_team_name
+from app.services.normalization.team_names import normalize_team_id, normalize_team_name
 
 DATA_RAW = Path(__file__).parent.parent.parent / "data" / "raw"
+
+
+class TestFixtureCSV:
+    def test_group_stage_fixtures_use_current_world_cup_teams(self):
+        team_ids = {
+            row["id"]
+            for row in csv.DictReader((DATA_RAW / "teams.csv").open(encoding="utf-8"))
+        }
+        fixture_rows = list(
+            csv.DictReader((DATA_RAW / "fixtures_2026.csv").open(encoding="utf-8"))
+        )
+        group_rows = [row for row in fixture_rows if row["stage"] == "group"]
+
+        assert len(team_ids) == 48
+        assert len(group_rows) == 72
+        for row in group_rows:
+            assert row["home_team_id"] in team_ids
+            assert row["away_team_id"] in team_ids
+
+    def test_group_stage_fixtures_cover_all_current_world_cup_teams(self):
+        team_ids = {
+            row["id"]
+            for row in csv.DictReader((DATA_RAW / "teams.csv").open(encoding="utf-8"))
+        }
+        fixture_rows = list(
+            csv.DictReader((DATA_RAW / "fixtures_2026.csv").open(encoding="utf-8"))
+        )
+        fixture_team_ids = {
+            row[column]
+            for row in fixture_rows
+            if row["stage"] == "group"
+            for column in ("home_team_id", "away_team_id")
+        }
+
+        assert fixture_team_ids == team_ids
 
 
 # ---------------------------------------------------------------------------
@@ -147,6 +183,34 @@ class TestNormalizeTeamName:
         assert normalize_team_name("germany") == "Alemania"
 
 
+class TestNormalizeTeamId:
+    @pytest.mark.parametrize("raw,expected", [
+        ("Bosnia-Herzegovina", "BIH"),
+        ("Bosnia and Herzegovina", "BIH"),
+        ("Cape Verde Islands", "CPV"),
+        ("Cabo Verde", "CPV"),
+        ("Democratic Republic of Congo", "COD"),
+        ("DR Congo", "COD"),
+        ("South Korea", "KOR"),
+        ("Côte d'Ivoire", "CIV"),
+        ("Curacao", "CUW"),
+        ("Czechia", "CZE"),
+        ("United States", "USA"),
+        ("USA", "USA"),
+    ])
+    def test_external_aliases_map_to_team_ids(self, raw, expected):
+        assert normalize_team_id(raw) == expected
+
+    def test_unknown_name_returns_none(self):
+        assert normalize_team_id("Neverland FC") is None
+
+    def test_strips_whitespace(self):
+        assert normalize_team_id("  Cape Verde Islands  ") == "CPV"
+
+    def test_case_insensitive_lookup(self):
+        assert normalize_team_id("bosnia-herzegovina") == "BIH"
+
+
 # ---------------------------------------------------------------------------
 # 4. ELO scraper — mock HTTP returns correct structure
 # ---------------------------------------------------------------------------
@@ -241,17 +305,18 @@ class TestAdminEndpoint:
                 mock_q.enqueue.return_value = mock_job
                 MockQ.return_value = mock_q
 
-                client = TestClient(app)
-                response = client.post(
-                    "/api/admin/ingest",
-                    headers={"X-Admin-Token": "test-token"},
-                )
+                with TestClient(app) as client:
+                    response = client.post(
+                        "/api/admin/ingest",
+                        headers={"X-Admin-Token": "test-token"},
+                    )
         finally:
             cfg.settings.ADMIN_TOKEN = original_token
 
         assert response.status_code == 200
         data = response.json()
-        assert data["job_id"] == "ingest-job-xyz"
+        assert data["job_id"]
+        assert data["rq_job_id"] == "ingest-job-xyz"
         assert data["status"] == "enqueued"
 
     def test_ingest_requires_token_when_set(self):

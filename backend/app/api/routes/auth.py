@@ -25,6 +25,8 @@ logger = get_logger(__name__)
 _active_sessions: dict[str, dict] = {}
 SESSION_TTL_SECONDS = 86400 * 7
 SESSION_KEY_PREFIX = "session:"
+ADMIN_HASH_ALGORITHM = "pbkdf2_sha256"
+ADMIN_HASH_ITERATIONS = 200_000
 
 
 class LoginRequest(BaseModel):
@@ -42,6 +44,35 @@ def _hash_password(token: str) -> str:
 
 # Keep old name as alias so dependencies.py import doesn't break
 _hash_token = _hash_password
+
+
+def _hash_admin_password(password: str) -> str:
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode(),
+        salt.encode(),
+        ADMIN_HASH_ITERATIONS,
+    ).hex()
+    return f"{ADMIN_HASH_ALGORITHM}${ADMIN_HASH_ITERATIONS}${salt}${digest}"
+
+
+def _verify_admin_password(password: str, stored_hash: str) -> bool:
+    try:
+        algorithm, iterations_raw, salt, expected = stored_hash.split("$", 3)
+        iterations = int(iterations_raw)
+    except ValueError:
+        # Backward-compatible support for legacy sha256 hex rows.
+        return secrets.compare_digest(_hash_password(password), stored_hash)
+    if algorithm != ADMIN_HASH_ALGORITHM:
+        return False
+    actual = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode(),
+        salt.encode(),
+        iterations,
+    ).hex()
+    return secrets.compare_digest(actual, expected)
 
 
 def _session_key(token_hash: str) -> str:
@@ -111,30 +142,37 @@ def is_session_valid(admin_session: str) -> bool:
     return _get_session(admin_session) is not None
 
 
-@router.post("/api/auth/login")
-async def login(body: LoginRequest, response: Response) -> dict:
-    """Verify ADMIN_PASSWORD and set an httpOnly session cookie.
-
-    Returns must_change_password=true when no successful password change has
-    ever been recorded, prompting the user to set the first real password.
-    """
+def _verify_password(password: str, stored_hash: str | None) -> bool:
+    if stored_hash is not None:
+        return _verify_admin_password(password, stored_hash)
     if not settings.ADMIN_PASSWORD:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Admin password not configured. Set ADMIN_PASSWORD in environment.",
         )
-    if not secrets.compare_digest(body.password, settings.ADMIN_PASSWORD):
+    return secrets.compare_digest(password, settings.ADMIN_PASSWORD)
+
+
+@router.post("/api/auth/login")
+async def login(body: LoginRequest, response: Response) -> dict:
+    """Verify ADMIN_PASSWORD and set an httpOnly session cookie.
+
+    Returns must_change_password=true when no durable admin credential exists,
+    prompting the user to set the first real password.
+    """
+    from app.db.connection import db_transaction
+    from app.db.repositories.auth import get_admin_password_hash
+
+    with db_transaction() as conn:
+        stored_hash = get_admin_password_hash(conn)
+        must_change = stored_hash is None
+
+    if not _verify_password(body.password, stored_hash):
         logger.warning("Failed admin login attempt")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Contraseña incorrecta",
         )
-
-    from app.db.connection import db_transaction
-    from app.db.repositories.auth import has_password_change_history
-
-    with db_transaction() as conn:
-        must_change = not has_password_change_history(conn)
 
     session_token = _create_session(must_change_password=must_change)
 
@@ -142,7 +180,7 @@ async def login(body: LoginRequest, response: Response) -> dict:
         key="admin_session",
         value=session_token,
         httponly=True,
-        secure=False,  # Cloudflare terminates HTTPS; backend sees internal HTTP.
+        secure=settings.ENVIRONMENT == "production",
         samesite="lax",
         max_age=SESSION_TTL_SECONDS,
         path="/",
@@ -163,24 +201,33 @@ async def change_password(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Sesión no válida",
         )
-    if not secrets.compare_digest(body.old_password, settings.ADMIN_PASSWORD):
+
+    from app.db.connection import db_transaction
+    from app.db.repositories.auth import (
+        get_admin_password_hash,
+        insert_password_history,
+        upsert_admin_credential,
+    )
+
+    with db_transaction() as conn:
+        stored_hash = get_admin_password_hash(conn)
+
+    if not _verify_password(body.old_password, stored_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Contraseña actual incorrecta",
         )
 
-    from app.db.connection import db_transaction
-    from app.db.repositories.auth import insert_password_history
     with db_transaction() as conn:
         insert_password_history(
             conn,
             "admin_ui",
-            _hash_password(body.old_password),
+            _hash_admin_password(body.old_password),
             note="admin password changed from web UI",
         )
+        upsert_admin_credential(conn, _hash_admin_password(body.new_password))
         conn.commit()
 
-    settings.ADMIN_PASSWORD = body.new_password
     _update_session(admin_session, must_change_password=False)
 
     logger.info("Admin password changed successfully")
@@ -216,10 +263,10 @@ async def auth_status(admin_session: str = Cookie(default="")) -> dict:
 
 @router.get("/api/auth/password-changed")
 async def password_changed() -> dict:
-    """Return whether at least one admin password change has been recorded."""
+    """Return whether the web admin password has a durable credential."""
     from app.db.connection import db_transaction
-    from app.db.repositories.auth import has_password_change_history
+    from app.db.repositories.auth import has_admin_credential
 
     with db_transaction() as conn:
-        changed = has_password_change_history(conn)
+        changed = has_admin_credential(conn)
     return {"password_changed": changed}

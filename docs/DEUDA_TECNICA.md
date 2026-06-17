@@ -28,7 +28,7 @@ Actualizar con cada prompt completado.
 | DT-012 | P9 | backend/app/services/ml/ | Modelos ML entrenados no tienen versionado persistente; reentrenar sobreescribe el modelo anterior en `data/models/` | Media | No | Resuelto |
 
 | DT-014 | Fix-4 | frontend | Sin tests E2E para flujo de login admin (login → acción → logout) | Baja | No | Pendiente |
-| DT-015 | Fix-4 | backend | Sesiones admin en memoria se pierden al reiniciar el container — usuario debe re-loguearse tras cada deploy | Media | No | Pendiente |
+| DT-015 | Fix-4 | backend | Sesiones admin en memoria se pierden al reiniciar el container — usuario debe re-loguearse tras cada deploy | Media | No | **Resuelto** (Fix-5: sesiones en Redis; contraseña web durable en SQLite) |
 | DT-016 | Fix-4 | docker | Containers corren como root; sin `.dockerignore` óptimo | Media | No | Pendiente |
 | DT-017 | Fix-4 | backend/frontend | Sin CI/CD (GitHub Actions) para tests automáticos en cada PR | Alta | No | Pendiente |
 
@@ -36,4 +36,4 @@ Actualizar con cada prompt completado.
 
 - Los ítems resueltos no se eliminan; se marcan como **Resuelto** para trazabilidad.
 - Si una deuda se convierte en bloqueante, escalarla inmediatamente.
-- DT-015: las sesiones en memoria son aceptables para uso personal single-server. Para persistencia, migrar a Redis como backend de sesiones.
+- DT-015: resuelto. Las sesiones viven en Redis y la contraseña web cambiada desde la UI queda persistida en SQLite.

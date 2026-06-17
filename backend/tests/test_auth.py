@@ -41,11 +41,19 @@ def _install_fake_redis(monkeypatch):
 def client(monkeypatch, tmp_path):
     import sqlite3
     from app.db.migrations import run_migrations
+    from app.api.routes.auth import _hash_admin_password
 
     db_path = str(tmp_path / "auth_test.db")
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     run_migrations(conn)
+    conn.execute(
+        """
+        INSERT INTO admin_credentials (id, password_hash)
+        VALUES (?, ?)
+        """,
+        ("admin", _hash_admin_password(_PASSWORD)),
+    )
     conn.execute(
         """
         INSERT INTO admin_password_history (changed_by, password_hash, note)
@@ -243,6 +251,25 @@ class TestChangePassword:
         assert r.status_code == 200
         assert r.json()["status"] == "ok"
 
+    def test_change_password_persists_new_credential(self, client):
+        """La nueva contraseña queda persistida en admin_credentials."""
+        from app.db.connection import db_transaction
+        from app.db.repositories.auth import get_admin_password_hash
+        from app.api.routes.auth import _verify_admin_password
+
+        client.post("/api/auth/login", json={"password": _PASSWORD})
+        r = client.post("/api/auth/change-password", json={
+            "old_password": _PASSWORD,
+            "new_password": "nuevapass123",
+        })
+        assert r.status_code == 200
+
+        with db_transaction() as conn:
+            stored_hash = get_admin_password_hash(conn)
+
+        assert stored_hash is not None
+        assert _verify_admin_password("nuevapass123", stored_hash)
+
     def test_change_password_clears_must_change_flag(self, client):
         """Después de cambiar contraseña, must_change_password pasa a false."""
         client.post("/api/auth/login", json={"password": _PASSWORD})
@@ -273,3 +300,9 @@ class TestChangePassword:
         r = client.get("/api/auth/password-changed")
         assert r.status_code == 200
         assert r.json()["password_changed"] is True
+
+    def test_cookie_is_secure_in_production(self, monkeypatch, client):
+        monkeypatch.setattr("app.core.config.settings.ENVIRONMENT", "production")
+        r = client.post("/api/auth/login", json={"password": _PASSWORD})
+        assert r.status_code == 200
+        assert "secure" in r.headers["set-cookie"].lower()

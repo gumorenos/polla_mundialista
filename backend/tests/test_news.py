@@ -300,3 +300,10 @@ class TestLlmCompleteFailure:
 
         assert result["affected_teams"] == []
         conn.close()
+
+
+def test_llm_parse_response_none_returns_none():
+    """Malformed/empty LLM content should not raise from debug logging."""
+    from app.services.news.llm_classifier import _parse_response
+
+    assert _parse_response(None) is None

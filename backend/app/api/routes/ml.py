@@ -31,6 +31,11 @@ class TrainRequest(BaseModel):
     validation_split: float = Field(default=0.2, gt=0.0, lt=1.0)
 
 
+def _public_model(row: dict[str, Any]) -> dict[str, Any]:
+    """Remove filesystem metadata from public ML model responses."""
+    return {k: v for k, v in row.items() if k != "model_path"}
+
+
 # ---------------------------------------------------------------------------
 # POST /api/ml/train  — enqueue ML training job (admin only)
 # ---------------------------------------------------------------------------
@@ -61,9 +66,12 @@ def enqueue_ml_training(request: Request, body: TrainRequest) -> dict[str, Any]:
         job_timeout=settings.RQ_LONG_TIMEOUT,
     )
 
-    with db_transaction() as conn:
-        JobRepository(conn).update_status(job_id, "enqueued", rq_job_id=rq_job.id)
-        conn.commit()
+    try:
+        with db_transaction() as conn:
+            JobRepository(conn).update_rq_job_id(job_id, rq_job.id)
+            conn.commit()
+    except Exception:
+        logger.exception("ML training enqueued in RQ but rq_job_id update failed: db_job=%s rq=%s", job_id, rq_job.id)
 
     logger.info(
         "ML training enqueued: rq=%s db_job=%s algo=%s",
@@ -91,7 +99,7 @@ def get_active_model() -> dict[str, Any]:
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No active ML model found. Run /api/ml/train first.",
         )
-    return row
+    return _public_model(row)
 
 
 # ---------------------------------------------------------------------------
@@ -102,7 +110,7 @@ def get_active_model() -> dict[str, Any]:
 def list_models() -> list[dict[str, Any]]:
     """Return all trained ML models ordered by Brier score."""
     with db_transaction() as conn:
-        return MLRepository(conn).list_models()
+        return [_public_model(row) for row in MLRepository(conn).list_models()]
 
 
 # ---------------------------------------------------------------------------

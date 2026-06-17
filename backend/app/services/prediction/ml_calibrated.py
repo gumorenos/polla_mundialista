@@ -37,7 +37,12 @@ def _safe_load_model(model_path: str):
     path = Path(model_path).resolve()
     allowed_dir = Path(settings.ML_MODELS_PATH).resolve()
 
-    if not str(path).startswith(str(allowed_dir) + "/") and path != allowed_dir:
+    try:
+        inside_allowed_dir = path == allowed_dir or path.is_relative_to(allowed_dir)
+    except AttributeError:
+        inside_allowed_dir = path == allowed_dir or allowed_dir in path.parents
+
+    if not inside_allowed_dir:
         raise ValueError(
             f"Model path '{path}' is outside the allowed directory '{allowed_dir}'"
         )

@@ -27,7 +27,7 @@ from app.core.config import settings
 from app.db.connection import db_transaction
 from app.db.repositories.ratings import RatingRepository
 from app.db.repositories.teams import TeamRepository
-from app.services.normalization.team_names import normalize_team_name
+from app.services.normalization.team_names import normalize_team_id, normalize_team_name
 
 logger = logging.getLogger(__name__)
 
@@ -159,10 +159,11 @@ def ingest_elo_ratings(
         count = 0
         for entry in entries:
             try:
-                team = team_repo.get_by_name(entry.team)
-                tid = team["id"] if team else entry.team
+                team_id = normalize_team_id(entry.team)
+                team = team_repo.get_by_id(team_id) if team_id else team_repo.get_by_name(entry.team)
+                tid = team["id"] if team else (team_id or entry.team)
                 if not team:
-                    team_repo.upsert({"id": entry.team, "name": entry.team})
+                    team_repo.upsert({"id": tid, "name": entry.team})
                 rating_repo.upsert_elo(
                     team_id=tid,
                     value=float(entry.elo),
