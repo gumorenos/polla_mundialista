@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/simulations", tags=["simulations"])
 
 
-ModelName = Literal["baseline", "elo", "poisson", "poisson_context", "ml_calibrated"]
+ModelName = Literal["baseline", "elo", "poisson", "poisson_context", "ml_calibrated", "consensus"]
 
 
 class RunRequest(BaseModel):
@@ -82,7 +82,7 @@ def enqueue_simulation(request: Request, body: RunRequest) -> dict[str, Any]:
 # GET /api/simulations/comparison
 # ---------------------------------------------------------------------------
 
-_COMPARISON_MODELS = ["baseline", "elo", "poisson", "poisson_context", "ml_calibrated"]
+_COMPARISON_MODELS = ["baseline", "elo", "poisson", "poisson_context", "ml_calibrated", "consensus"]
 
 
 @router.get("/comparison")

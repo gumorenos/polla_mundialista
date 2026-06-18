@@ -287,3 +287,9 @@ export interface EloHistoryEntry {
 }
 
 export type EloHistory = EloHistoryEntry[]
+
+export interface ConsensusWeights {
+  weights: Record<string, number>
+  brier_scores: Record<string, number>
+  note: string
+}

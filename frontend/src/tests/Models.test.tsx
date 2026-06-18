@@ -13,6 +13,7 @@ vi.mock('../api/hooks', () => ({
     error: null,
   }),
   useShapGlobal: () => ({ data: null, isLoading: false, error: null }),
+  useConsensusWeights: () => ({ data: null, isLoading: false, error: null }),
 }))
 
 describe('Models', () => {

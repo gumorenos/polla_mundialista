@@ -261,3 +261,39 @@ def get_shap_match(
         "prediction":   prediction,
         "explanation":  explanation,
     }
+
+
+# ---------------------------------------------------------------------------
+# GET /api/ml/consensus/weights
+# ---------------------------------------------------------------------------
+
+@router.get("/consensus/weights")
+def get_consensus_weights() -> dict[str, Any]:
+    """Return the per-model weights used by the consensus ensemble.
+
+    Weights are derived from the inverse average Brier Score of backtesting.
+    A lower Brier Score translates to a higher weight.
+    If no backtesting metrics exist yet, equal weights are returned.
+    """
+    from app.services.prediction.consensus import get_consensus_weights as _get_weights
+
+    with db_transaction() as conn:
+        weights = _get_weights(conn)
+
+        rows = conn.execute(
+            """
+            SELECT model_name, AVG(brier_score) AS avg_brier
+            FROM model_evaluations
+            WHERE model_name IN ('baseline','elo','poisson','poisson_context','ml_calibrated')
+              AND brier_score IS NOT NULL AND brier_score > 0
+            GROUP BY model_name
+            """
+        ).fetchall()
+
+    brier_map = {r["model_name"]: round(float(r["avg_brier"]), 4) for r in rows}
+
+    return {
+        "weights": {k: round(v, 4) for k, v in weights.items()},
+        "brier_scores": brier_map,
+        "note": "Mayor peso = mejor historial de Brier Score en backtesting",
+    }

@@ -69,7 +69,7 @@ class _StepTimer:
         return False
 
 _BASE_MODELS = ["baseline", "elo", "poisson", "poisson_context"]
-_ALL_MODELS  = _BASE_MODELS + ["ml_calibrated"]
+_ALL_MODELS  = _BASE_MODELS + ["ml_calibrated", "consensus"]
 
 
 # ---------------------------------------------------------------------------

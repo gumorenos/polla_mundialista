@@ -242,9 +242,12 @@ def _init_model(model_name: str, conn: sqlite3.Connection) -> object:
         "poisson_context": PoissonContextModel,
         "ml_calibrated":   MLCalibratedModel,
     }
+    if model_name == "consensus":
+        from app.services.prediction.consensus import ConsensusModel
+        return ConsensusModel(conn)
     cls = models.get(model_name)
     if cls is None:
-        raise ValueError(f"Unknown model '{model_name}'. Choose from: {list(models)}")
+        raise ValueError(f"Unknown model '{model_name}'. Choose from: {list(models) + ['consensus']}")
     return cls(conn)
 
 

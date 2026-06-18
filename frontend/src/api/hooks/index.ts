@@ -3,6 +3,7 @@ import { api } from '../client'
 import type {
   AppConfigEntry,
   CalibrationBin,
+  ConsensusWeights,
   EloHistory,
   EnqueueResponse,
   JobRecord,
@@ -260,6 +261,15 @@ export function useTournamentNarrative(runId: string | null) {
       api.get<NarrativeResponse>(`/api/simulations/${runId}/narrative/tournament`),
     enabled: !!runId,
     staleTime: 6 * 60 * 60 * 1000,
+    retry: false,
+  })
+}
+
+export function useConsensusWeights() {
+  return useQuery<ConsensusWeights>({
+    queryKey: ['consensus-weights'],
+    queryFn: () => api.get<ConsensusWeights>('/api/ml/consensus/weights'),
+    staleTime: 5 * 60 * 1000,
     retry: false,
   })
 }

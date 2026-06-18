@@ -3,7 +3,7 @@ import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContai
 import { useRunSimulation, useSimulations, useSimulationComparison, useSimulationDiff, useShapGlobal, useShapMatch, useTeamNarrative, useOddsValue, useEloHistory } from '../api/hooks'
 import type { TeamResult, SimulationComparisonTeam, SimulationDiffTeam, ShapFactor, OddsValueTeam } from '../types'
 
-const MODELS = ['baseline', 'elo', 'poisson', 'poisson_context', 'ml_calibrated']
+const MODELS = ['baseline', 'elo', 'poisson', 'poisson_context', 'ml_calibrated', 'consensus']
 
 const MODEL_LABELS: Record<string, string> = {
   baseline: 'Baseline',
@@ -11,6 +11,7 @@ const MODEL_LABELS: Record<string, string> = {
   poisson: 'Poisson',
   poisson_context: 'Poisson+Ctx',
   ml_calibrated: 'ML Calibrado',
+  consensus: '⚖️ Consenso (ensemble)',
 }
 
 function fmt(n: number) {
@@ -119,7 +120,11 @@ function ComparisonTable({ teams, models }: { teams: SimulationComparisonTeam[];
             <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-400">#</th>
             <th className={thClass} onClick={() => handleSort('name')}>Selección{arrow('name')}</th>
             {models.map((m) => (
-              <th key={m} className={thClass} onClick={() => handleSort(m)}>
+              <th
+                key={m}
+                className={`${thClass} ${m === 'consensus' ? 'bg-indigo-950/40 border-l border-indigo-800/50 text-indigo-300' : ''}`}
+                onClick={() => handleSort(m)}
+              >
                 {MODEL_LABELS[m] ?? m}{arrow(m)}
               </th>
             ))}
@@ -139,12 +144,19 @@ function ComparisonTable({ teams, models }: { teams: SimulationComparisonTeam[];
                 {vals.map((val, mi) => {
                   const isMax = val !== null && val === max
                   const isMin = val !== null && val === min && presentVals.length > 1
+                  const isConsensus = models[mi] === 'consensus'
                   return (
                     <td
                       key={models[mi]}
                       className={`px-4 py-2 font-mono text-xs ${
+                        isConsensus
+                          ? 'bg-indigo-950/40 border-l border-indigo-800/50 font-semibold'
+                          : ''
+                      } ${
                         val === null
                           ? 'text-gray-600'
+                          : isConsensus
+                          ? 'text-indigo-300'
                           : isMax
                           ? 'text-green-400 font-bold'
                           : isMin

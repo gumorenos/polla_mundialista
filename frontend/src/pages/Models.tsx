@@ -8,7 +8,7 @@ import {
 } from '@tanstack/react-table'
 import { useState } from 'react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
-import { useModelsComparison, useShapGlobal } from '../api/hooks'
+import { useConsensusWeights, useModelsComparison, useShapGlobal } from '../api/hooks'
 import type { ModelMetrics } from '../types'
 
 const col = createColumnHelper<ModelMetrics>()
@@ -125,6 +125,82 @@ function ShapGlobalChart() {
 }
 
 // ---------------------------------------------------------------------------
+// Consensus weights chart
+// ---------------------------------------------------------------------------
+
+const MODEL_DISPLAY: Record<string, string> = {
+  baseline: 'Baseline',
+  elo: 'ELO',
+  poisson: 'Poisson',
+  poisson_context: 'Poisson+Ctx',
+  ml_calibrated: 'ML Calibrado',
+}
+
+function ConsensusWeightsChart() {
+  const { data, isLoading, error } = useConsensusWeights()
+
+  if (isLoading) return <p className="text-sm text-gray-400">Cargando pesos del ensemble…</p>
+  if (error) return null
+  if (!data) return null
+
+  const chartData = Object.entries(data.weights)
+    .map(([model, weight]) => ({
+      model: MODEL_DISPLAY[model] ?? model,
+      weight: parseFloat((weight * 100).toFixed(2)),
+      brier: data.brier_scores[model] != null ? data.brier_scores[model].toFixed(4) : '—',
+    }))
+    .sort((a, b) => b.weight - a.weight)
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <h3 className="text-sm font-semibold uppercase tracking-wider text-indigo-400">
+          ⚖️ Pesos del Ensemble Consenso
+        </h3>
+        <p className="mt-1 text-xs text-gray-500">
+          {data.note}
+        </p>
+      </div>
+      <div className="rounded-lg border border-indigo-900/50 bg-indigo-950/20 p-4">
+        <ResponsiveContainer width="100%" height={200}>
+          <BarChart
+            data={chartData}
+            layout="vertical"
+            margin={{ top: 0, right: 60, bottom: 0, left: 100 }}
+          >
+            <XAxis
+              type="number"
+              tick={{ fill: '#9ca3af', fontSize: 11 }}
+              tickFormatter={(v) => `${v.toFixed(1)}%`}
+              axisLine={{ stroke: '#374151' }}
+              tickLine={false}
+              domain={[0, 'auto']}
+            />
+            <YAxis
+              type="category"
+              dataKey="model"
+              tick={{ fill: '#d1d5db', fontSize: 11 }}
+              axisLine={false}
+              tickLine={false}
+              width={95}
+            />
+            <Tooltip
+              contentStyle={{ background: '#111827', border: '1px solid #4f46e5', borderRadius: 6 }}
+              labelStyle={{ color: '#a5b4fc', fontWeight: 600, marginBottom: 4 }}
+              formatter={(v: number, _name: string, props: { payload?: { brier: string } }) => [
+                `${v.toFixed(2)}% (Brier: ${props.payload?.brier ?? '—'})`,
+                'Peso ensemble',
+              ]}
+            />
+            <Bar dataKey="weight" radius={[0, 3, 3, 0]} fill="#6366f1" />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 
@@ -204,6 +280,9 @@ export default function Models() {
 
       {/* SHAP global importance */}
       <ShapGlobalChart />
+
+      {/* Consensus ensemble weights */}
+      <ConsensusWeightsChart />
     </div>
   )
 }
