@@ -22,6 +22,7 @@ vi.mock('../api/hooks', () => ({
   useSimulationDiff: () => ({ data: null, isLoading: false, error: null }),
   useShapGlobal: () => ({ data: null, isLoading: false, error: null }),
   useShapMatch: () => ({ data: null, isLoading: false, error: null }),
+  useTeamNarrative: () => ({ data: null, isLoading: false, error: null }),
 }))
 
 describe('Simulations', () => {

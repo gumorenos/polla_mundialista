@@ -262,6 +262,75 @@ def get_simulation_diff(model: str = Query(default="poisson")) -> dict[str, Any]
 
 
 # ---------------------------------------------------------------------------
+# GET /api/simulations/{run_id}/narrative/tournament
+# GET /api/simulations/{run_id}/narrative/{team_id}
+# ---------------------------------------------------------------------------
+
+@router.get("/{run_id}/narrative/tournament")
+def get_tournament_narrative(run_id: str) -> dict[str, Any]:
+    """Return LLM narrative for the full tournament (lazily generated, cached 6 h)."""
+    from app.db.repositories.narrative import NarrativeRepository
+    from app.services.narrative.generator import generate_tournament_narrative
+
+    with db_transaction() as conn:
+        run_row = conn.execute(
+            "SELECT model_name FROM simulation_runs WHERE id = ?", (run_id,)
+        ).fetchone()
+        if run_row is None:
+            raise HTTPException(status_code=404, detail="Simulation run not found")
+
+        model_name = run_row["model_name"]
+        repo = NarrativeRepository(conn)
+
+        cached = repo.get_with_meta(run_id, model_name, None)
+        if cached:
+            return {"narrative": cached["narrative"], "generated_at": cached["generated_at"]}
+
+        narrative = generate_tournament_narrative(conn, run_id)
+        if narrative is None:
+            return {"narrative": None, "generated_at": None}
+
+        repo.save(run_id, model_name, narrative, team_id=None)
+        conn.commit()
+        row = repo.get_with_meta(run_id, model_name, None)
+        generated_at = row["generated_at"] if row else None
+
+    return {"narrative": narrative, "generated_at": generated_at}
+
+
+@router.get("/{run_id}/narrative/{team_id}")
+def get_team_narrative(run_id: str, team_id: str) -> dict[str, Any]:
+    """Return LLM narrative for one team in this run (lazily generated, cached 6 h)."""
+    from app.db.repositories.narrative import NarrativeRepository
+    from app.services.narrative.generator import generate_team_narrative
+
+    with db_transaction() as conn:
+        run_row = conn.execute(
+            "SELECT model_name FROM simulation_runs WHERE id = ?", (run_id,)
+        ).fetchone()
+        if run_row is None:
+            raise HTTPException(status_code=404, detail="Simulation run not found")
+
+        model_name = run_row["model_name"]
+        repo = NarrativeRepository(conn)
+
+        cached = repo.get_with_meta(run_id, model_name, team_id)
+        if cached:
+            return {"narrative": cached["narrative"], "generated_at": cached["generated_at"]}
+
+        narrative = generate_team_narrative(conn, run_id, team_id)
+        if narrative is None:
+            return {"narrative": None, "generated_at": None}
+
+        repo.save(run_id, model_name, narrative, team_id=team_id)
+        conn.commit()
+        row = repo.get_with_meta(run_id, model_name, team_id)
+        generated_at = row["generated_at"] if row else None
+
+    return {"narrative": narrative, "generated_at": generated_at}
+
+
+# ---------------------------------------------------------------------------
 # GET /api/simulations/{run_id}
 # ---------------------------------------------------------------------------
 

@@ -433,6 +433,26 @@ def _m009_ml_models_shap(conn: sqlite3.Connection) -> None:
     _add_col(conn, "ml_models", "shap_importance", "TEXT")
 
 
+def _m010_narrative_cache(conn: sqlite3.Connection) -> None:
+    """Cache table for LLM-generated team and tournament narratives."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS narrative_cache (
+            id           TEXT PRIMARY KEY,
+            run_id       TEXT NOT NULL,
+            team_id      TEXT,
+            model_name   TEXT NOT NULL,
+            narrative    TEXT NOT NULL,
+            generated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_narrative_run_team "
+        "ON narrative_cache(run_id, team_id, model_name)"
+    )
+
+
 def _m008_app_config(conn: sqlite3.Connection) -> None:
     """Dynamic configuration table — overrides settings.py values at runtime."""
     conn.execute(
@@ -466,6 +486,7 @@ _MIGRATIONS = [
     _m007_availability_published_at,
     _m008_app_config,
     _m009_ml_models_shap,
+    _m010_narrative_cache,
 ]
 
 

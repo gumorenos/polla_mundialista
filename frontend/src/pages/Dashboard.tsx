@@ -1,6 +1,8 @@
+import { useState } from 'react'
 import {
   useModelsComparison,
   useSimulations,
+  useTournamentNarrative,
   useTriggerDailyUpdate,
   useTriggerFullRefresh,
 } from '../api/hooks'
@@ -27,6 +29,10 @@ export default function Dashboard() {
   const fullRefresh = useTriggerFullRefresh()
   const dailyUpdate = useTriggerDailyUpdate()
   const { data: authData } = useAuth()
+
+  const [showAnalysis, setShowAnalysis] = useState(false)
+  const runId = sim?.run.id ?? null
+  const tournamentNarrative = useTournamentNarrative(showAnalysis ? runId : null)
 
   const bestModel: ModelMetrics | undefined = [...(metrics ?? [])].sort(
     (a, b) => (a.brier_score ?? 1) - (b.brier_score ?? 1),
@@ -121,6 +127,52 @@ export default function Dashboard() {
               ))}
             </tbody>
           </table></div>
+        )}
+      </div>
+
+      {/* Tournament analysis (LLM) */}
+      <div className="rounded-lg border border-gray-800 bg-gray-900 p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
+              Análisis del Torneo
+            </h3>
+            {tournamentNarrative.data?.generated_at && (
+              <p className="mt-0.5 text-xs text-gray-600">
+                Generado: {new Date(tournamentNarrative.data.generated_at).toLocaleString()}
+              </p>
+            )}
+          </div>
+          <button
+            onClick={() => setShowAnalysis(true)}
+            disabled={noToken || !runId || showAnalysis}
+            title={noToken ? 'Inicia sesión para generar análisis' : undefined}
+            className="rounded bg-indigo-700 px-3 py-1.5 text-xs text-white hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {tournamentNarrative.isLoading ? 'Generando…' : 'Generar análisis'}
+          </button>
+        </div>
+        {tournamentNarrative.isLoading && (
+          <div className="space-y-2 animate-pulse">
+            {[1, 0.85, 0.7, 0.9, 0.6].map((w, i) => (
+              <div key={i} className="h-3 rounded bg-gray-800" style={{ width: `${w * 100}%` }} />
+            ))}
+          </div>
+        )}
+        {!tournamentNarrative.isLoading && tournamentNarrative.data?.narrative && (
+          <p className="text-sm leading-relaxed text-gray-300 whitespace-pre-wrap">
+            {tournamentNarrative.data.narrative}
+          </p>
+        )}
+        {!tournamentNarrative.isLoading && showAnalysis && tournamentNarrative.data?.narrative === null && (
+          <p className="text-xs text-yellow-500">
+            Análisis no disponible — configura OPENROUTER_API_KEY para activar.
+          </p>
+        )}
+        {!showAnalysis && (
+          <p className="text-xs text-gray-600">
+            {noToken ? 'Inicia sesión para generar el análisis narrativo del torneo.' : 'Pulsa «Generar análisis» para obtener un resumen narrativo de los favoritos.'}
+          </p>
         )}
       </div>
     </div>

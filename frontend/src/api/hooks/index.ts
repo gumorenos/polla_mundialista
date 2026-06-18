@@ -6,6 +6,7 @@ import type {
   EnqueueResponse,
   JobRecord,
   ModelMetrics,
+  NarrativeResponse,
   NewsResponse,
   NewsSummaryResponse,
   ShapGlobal,
@@ -213,6 +214,30 @@ export function useShapMatch(home: string | null, away: string | null, isNeutral
       ),
     enabled: !!home && !!away,
     staleTime: 5 * 60 * 1000,
+    retry: false,
+  })
+}
+
+export function useTeamNarrative(runId: string | null, teamId: string | null) {
+  return useQuery<NarrativeResponse>({
+    queryKey: ['narrative', 'team', runId, teamId],
+    queryFn: () =>
+      api.get<NarrativeResponse>(
+        `/api/simulations/${runId}/narrative/${encodeURIComponent(teamId!)}`,
+      ),
+    enabled: !!runId && !!teamId,
+    staleTime: 6 * 60 * 60 * 1000,
+    retry: false,
+  })
+}
+
+export function useTournamentNarrative(runId: string | null) {
+  return useQuery<NarrativeResponse>({
+    queryKey: ['narrative', 'tournament', runId],
+    queryFn: () =>
+      api.get<NarrativeResponse>(`/api/simulations/${runId}/narrative/tournament`),
+    enabled: !!runId,
+    staleTime: 6 * 60 * 60 * 1000,
     retry: false,
   })
 }

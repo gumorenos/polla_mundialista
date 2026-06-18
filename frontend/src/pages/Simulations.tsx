@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
-import { useRunSimulation, useSimulations, useSimulationComparison, useSimulationDiff, useShapGlobal, useShapMatch } from '../api/hooks'
+import { useRunSimulation, useSimulations, useSimulationComparison, useSimulationDiff, useShapGlobal, useShapMatch, useTeamNarrative } from '../api/hooks'
 import type { TeamResult, SimulationComparisonTeam, SimulationDiffTeam, ShapFactor } from '../types'
 
 const MODELS = ['baseline', 'elo', 'poisson', 'poisson_context', 'ml_calibrated']
@@ -338,14 +338,17 @@ function ShapMatchPanel({ homeId, awayId, homeName, awayName }: {
 function TeamDrawer({
   team,
   allTeams,
+  runId,
   onClose,
 }: {
   team: TeamResult
   allTeams: TeamResult[]
+  runId: string
   onClose: () => void
 }) {
   const [opponent, setOpponent] = useState<string>('')
   const shapGlobal = useShapGlobal()
+  const narrative = useTeamNarrative(runId, team.team_id)
 
   const opponents = allTeams.filter((t) => t.team_id !== team.team_id)
   const oppTeam = opponents.find((t) => t.team_id === opponent)
@@ -401,6 +404,25 @@ function TeamDrawer({
                 </div>
               ))}
             </div>
+          </div>
+
+          {/* LLM narrative */}
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--color-muted)' }}>
+              Análisis narrativo
+            </p>
+            {narrative.isLoading && (
+              <div className="space-y-1.5 animate-pulse">
+                {[0.9, 0.75, 0.6].map((w) => (
+                  <div key={w} className="h-3 rounded" style={{ background: 'var(--color-surface2)', width: `${w * 100}%` }} />
+                ))}
+              </div>
+            )}
+            {!narrative.isLoading && narrative.data?.narrative && (
+              <p className="text-xs leading-relaxed" style={{ color: 'var(--color-muted)' }}>
+                {narrative.data.narrative}
+              </p>
+            )}
           </div>
 
           {/* Per-match SHAP */}
@@ -609,6 +631,7 @@ export default function Simulations() {
         <TeamDrawer
           team={drawerTeam}
           allTeams={data.team_results}
+          runId={data.run.id}
           onClose={() => setDrawerTeam(null)}
         />
       )}

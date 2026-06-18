@@ -228,6 +228,11 @@ export interface ShapFactor {
   description: string
 }
 
+export interface NarrativeResponse {
+  narrative: string | null
+  generated_at: string | null
+}
+
 export interface ShapMatch {
   home_team: string
   away_team: string
