@@ -138,3 +138,24 @@ class MLRepository:
             """
         ).fetchall()
         return [dict(r) for r in rows]
+
+    def save_shap_importance(self, model_id: str, shap_json: str) -> None:
+        """Persist SHAP global importance JSON on a model record."""
+        self._c.execute(
+            "UPDATE ml_models SET shap_importance = ? WHERE id = ?",
+            (shap_json, model_id),
+        )
+
+    def get_active_shap_importance(self) -> dict[str, Any] | None:
+        """Return (model_id, algorithm, shap_importance) for the active model."""
+        return _row(
+            self._c.execute(
+                """
+                SELECT id, algorithm, shap_importance
+                FROM ml_models
+                WHERE is_active = 1
+                ORDER BY brier_score ASC
+                LIMIT 1
+                """
+            ).fetchone()
+        )

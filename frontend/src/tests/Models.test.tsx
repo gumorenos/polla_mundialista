@@ -12,6 +12,7 @@ vi.mock('../api/hooks', () => ({
     isLoading: false,
     error: null,
   }),
+  useShapGlobal: () => ({ data: null, isLoading: false, error: null }),
 }))
 
 describe('Models', () => {

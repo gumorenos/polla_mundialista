@@ -133,6 +133,9 @@ def _run_training(
     if importances:
         ml_repo.save_feature_snapshot(run_id, FEATURE_NAMES, importances)
 
+    # SHAP global importance (sample of up to 500 training rows)
+    _save_shap_importance(ml_repo, model, X_train_df, model_id)
+
     # Mark active
     ml_repo.set_active_model(model_id)
 
@@ -267,6 +270,24 @@ def _get_feature_importances(model, algo: str) -> list[float] | None:
         return [float(v) for v in imp]
     except AttributeError:
         return None
+
+
+def _save_shap_importance(
+    ml_repo: Any,
+    model: Any,
+    X_train_df: Any,
+    model_id: str,
+) -> None:
+    """Compute SHAP global importance and persist it on the model record."""
+    try:
+        from app.services.ml.shap_service import compute_global_shap
+        sample = X_train_df.iloc[:500]
+        importance = compute_global_shap(model, sample, FEATURE_NAMES)
+        if importance:
+            ml_repo.save_shap_importance(model_id, json.dumps(importance))
+            logger.info("SHAP importance saved for model %s", model_id)
+    except Exception as exc:
+        logger.warning("SHAP importance computation failed (non-fatal): %s", exc)
 
 
 def _default_hyperparams(algo: str) -> dict[str, Any]:

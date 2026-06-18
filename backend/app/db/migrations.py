@@ -428,6 +428,11 @@ _DEFAULT_APP_CONFIG: dict[str, tuple[str, str]] = {
 }
 
 
+def _m009_ml_models_shap(conn: sqlite3.Connection) -> None:
+    """Add shap_importance JSON column to ml_models."""
+    _add_col(conn, "ml_models", "shap_importance", "TEXT")
+
+
 def _m008_app_config(conn: sqlite3.Connection) -> None:
     """Dynamic configuration table — overrides settings.py values at runtime."""
     conn.execute(
@@ -460,6 +465,7 @@ _MIGRATIONS = [
     _m006_admin_credentials,
     _m007_availability_published_at,
     _m008_app_config,
+    _m009_ml_models_shap,
 ]
 
 

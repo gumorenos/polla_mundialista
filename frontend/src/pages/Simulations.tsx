@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { useRunSimulation, useSimulations, useSimulationComparison, useSimulationDiff } from '../api/hooks'
-import type { TeamResult, SimulationComparisonTeam, SimulationDiffTeam } from '../types'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
+import { useRunSimulation, useSimulations, useSimulationComparison, useSimulationDiff, useShapGlobal, useShapMatch } from '../api/hooks'
+import type { TeamResult, SimulationComparisonTeam, SimulationDiffTeam, ShapFactor } from '../types'
 
 const MODELS = ['baseline', 'elo', 'poisson', 'poisson_context', 'ml_calibrated']
 
@@ -16,7 +17,7 @@ function fmt(n: number) {
   return (n * 100).toFixed(1) + '%'
 }
 
-function TeamTable({ rows }: { rows: TeamResult[] }) {
+function TeamTable({ rows, onTeamClick }: { rows: TeamResult[]; onTeamClick: (t: TeamResult) => void }) {
   const sorted = [...rows].sort((a, b) => b.win_tournament - a.win_tournament)
   return (
     <div className="overflow-x-auto rounded-lg border border-gray-800">
@@ -37,9 +38,16 @@ function TeamTable({ rows }: { rows: TeamResult[] }) {
         </thead>
         <tbody>
           {sorted.map((t, i) => (
-            <tr key={t.team_id} className="border-t border-gray-800 hover:bg-gray-900">
+            <tr
+              key={t.team_id}
+              className="border-t border-gray-800 hover:bg-gray-800/60 cursor-pointer transition-colors"
+              onClick={() => onTeamClick(t)}
+            >
               <td className="px-4 py-2 text-gray-500">{i + 1}</td>
-              <td className="px-4 py-2 font-medium text-white">{t.team_name}</td>
+              <td className="px-4 py-2 font-medium text-white">
+                {t.team_name}
+                <span className="ml-1 text-xs text-gray-600">›</span>
+              </td>
               <td className="px-4 py-2 text-blue-400">{fmt(t.win_tournament)}</td>
               <td className="px-4 py-2 text-gray-300">{fmt(t.reach_final)}</td>
               <td className="px-4 py-2 text-gray-300">{fmt(t.reach_semi_final)}</td>
@@ -263,9 +271,209 @@ function DiffExpandableTable({ teams }: { teams: SimulationDiffTeam[] }) {
   )
 }
 
+// ---------------------------------------------------------------------------
+// SHAP drawer
+// ---------------------------------------------------------------------------
+
+function ShapBar({ factor }: { factor: ShapFactor }) {
+  const pct = Math.abs(factor.shap_contribution) * 100
+  const isPos = factor.direction === 'favors_home'
+  const isNeg = factor.direction === 'favors_away'
+  return (
+    <div className="space-y-0.5">
+      <div className="flex items-center justify-between text-xs">
+        <span className="text-gray-300 truncate max-w-[160px]" title={factor.description}>
+          {factor.label}
+        </span>
+        <span className={`font-mono ${isPos ? 'text-green-400' : isNeg ? 'text-red-400' : 'text-gray-500'}`}>
+          {factor.shap_contribution >= 0 ? '+' : ''}{factor.shap_contribution.toFixed(3)}
+        </span>
+      </div>
+      <div className="h-1.5 rounded-full bg-gray-800 overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all ${isPos ? 'bg-green-500' : isNeg ? 'bg-red-500' : 'bg-gray-600'}`}
+          style={{ width: `${Math.min(pct * 8, 100)}%` }}
+        />
+      </div>
+    </div>
+  )
+}
+
+function ShapMatchPanel({ homeId, awayId, homeName, awayName }: {
+  homeId: string; awayId: string; homeName: string; awayName: string
+}) {
+  const { data, isLoading, error } = useShapMatch(homeId, awayId)
+
+  if (isLoading) return <p className="text-xs text-gray-500">Calculando SHAP…</p>
+  if (error) return <p className="text-xs text-yellow-500">SHAP no disponible para este partido.</p>
+  if (!data) return null
+
+  const { prediction, explanation } = data
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-3 gap-1 text-center text-xs">
+        {[
+          { label: homeName, val: prediction.home_win, color: 'text-blue-400' },
+          { label: 'Empate',  val: prediction.draw,     color: 'text-gray-400' },
+          { label: awayName,  val: prediction.away_win, color: 'text-orange-400' },
+        ].map(({ label, val, color }) => (
+          <div key={label} className="rounded bg-gray-800 p-2">
+            <div className={`text-base font-bold font-mono ${color}`}>{(val * 100).toFixed(1)}%</div>
+            <div className="text-gray-500 truncate">{label}</div>
+          </div>
+        ))}
+      </div>
+      {explanation.summary && (
+        <p className="text-xs text-gray-400 italic">{explanation.summary}</p>
+      )}
+      <div className="space-y-2">
+        {explanation.top_factors.slice(0, 8).map((f) => (
+          <ShapBar key={f.feature} factor={f} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function TeamDrawer({
+  team,
+  allTeams,
+  onClose,
+}: {
+  team: TeamResult
+  allTeams: TeamResult[]
+  onClose: () => void
+}) {
+  const [opponent, setOpponent] = useState<string>('')
+  const shapGlobal = useShapGlobal()
+
+  const opponents = allTeams.filter((t) => t.team_id !== team.team_id)
+  const oppTeam = opponents.find((t) => t.team_id === opponent)
+
+  const globalChartData = (shapGlobal.data?.features ?? []).map((f) => ({
+    label: f.label,
+    importance: parseFloat((f.importance * 100).toFixed(3)),
+  }))
+
+  const COLORS = ['#3b82f6','#6366f1','#8b5cf6','#a78bfa','#c4b5fd','#ddd6fe','#e0e7ff','#c7d2fe','#a5b4fc','#818cf8']
+
+  return (
+    <>
+      {/* Overlay */}
+      <div className="fixed inset-0 z-40 bg-black/50" onClick={onClose} />
+
+      {/* Drawer */}
+      <div className="fixed inset-y-0 right-0 z-50 w-full max-w-sm overflow-y-auto shadow-2xl flex flex-col"
+        style={{ background: 'var(--color-surface)', borderLeft: '1px solid var(--color-border)' }}>
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-4 border-b sticky top-0 z-10"
+          style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
+          <div>
+            <h3 className="text-base font-bold" style={{ color: 'var(--color-text)' }}>
+              {team.team_name}
+            </h3>
+            <p className="text-xs" style={{ color: 'var(--color-muted)' }}>Análisis ML</p>
+          </div>
+          <button onClick={onClose} className="p-1 rounded hover:bg-gray-700 text-gray-400">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="p-4 space-y-5 flex-1">
+          {/* Simulation stats */}
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--color-muted)' }}>
+              Probabilidades (simulación)
+            </p>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              {[
+                { label: 'Campeón', val: team.win_tournament, color: 'text-yellow-400' },
+                { label: 'Final',   val: team.reach_final,    color: 'text-blue-400' },
+                { label: 'Semi',    val: team.reach_semi_final, color: 'text-green-400' },
+                { label: 'Cuartos', val: team.reach_quarter_final, color: 'text-gray-300' },
+              ].map(({ label, val, color }) => (
+                <div key={label} className="rounded p-2" style={{ background: 'var(--color-surface2)' }}>
+                  <div className={`text-sm font-bold font-mono ${color}`}>{fmt(val)}</div>
+                  <div style={{ color: 'var(--color-muted)' }}>{label}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Per-match SHAP */}
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--color-muted)' }}>
+              ¿Por qué este pronóstico? — partido vs.
+            </p>
+            <select
+              value={opponent}
+              onChange={(e) => setOpponent(e.target.value)}
+              className="w-full rounded border px-2 py-1.5 text-xs mb-3"
+              style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface2)', color: 'var(--color-text)' }}
+            >
+              <option value="">Selecciona rival…</option>
+              {opponents.map((t) => (
+                <option key={t.team_id} value={t.team_id}>{t.team_name}</option>
+              ))}
+            </select>
+            {opponent && oppTeam && (
+              <ShapMatchPanel
+                homeId={team.team_id}
+                awayId={opponent}
+                homeName={team.team_name}
+                awayName={oppTeam.team_name}
+              />
+            )}
+          </div>
+
+          {/* Global SHAP */}
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--color-muted)' }}>
+              Importancia global de features (modelo ML)
+            </p>
+            {shapGlobal.isLoading && <p className="text-xs text-gray-500">Cargando…</p>}
+            {shapGlobal.error && (
+              <p className="text-xs text-yellow-500">
+                Sin modelo ML entrenado — entrena para ver SHAP.
+              </p>
+            )}
+            {globalChartData.length > 0 && (
+              <div className="rounded border overflow-hidden" style={{ borderColor: 'var(--color-border)' }}>
+                <ResponsiveContainer width="100%" height={240}>
+                  <BarChart
+                    data={globalChartData}
+                    layout="vertical"
+                    margin={{ top: 4, right: 12, bottom: 4, left: 130 }}
+                  >
+                    <XAxis type="number" tick={{ fill: '#6b7280', fontSize: 10 }} tickFormatter={(v) => v.toFixed(2)} axisLine={false} tickLine={false} />
+                    <YAxis type="category" dataKey="label" tick={{ fill: '#d1d5db', fontSize: 10 }} axisLine={false} tickLine={false} width={125} />
+                    <Tooltip
+                      contentStyle={{ background: '#111827', border: '1px solid #374151', borderRadius: 6, fontSize: 11 }}
+                      formatter={(v: number) => [v.toFixed(3), 'Importancia SHAP']}
+                    />
+                    <Bar dataKey="importance" radius={[0, 3, 3, 0]}>
+                      {globalChartData.map((_, i) => (
+                        <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  )
+}
+
 export default function Simulations() {
   const [tab, setTab] = useState<'individual' | 'comparar'>('individual')
   const [model, setModel] = useState('poisson')
+  const [drawerTeam, setDrawerTeam] = useState<TeamResult | null>(null)
   const { data, isLoading, error } = useSimulations(model)
   const runSim = useRunSimulation()
   const comparison = useSimulationComparison()
@@ -365,7 +573,7 @@ export default function Simulations() {
                   </span>
                 </span>
               </div>
-              <TeamTable rows={data.team_results} />
+              <TeamTable rows={data.team_results} onTeamClick={setDrawerTeam} />
 
               {/* Diff section */}
               {diff.data && !('error' in diff.data) && (
@@ -394,6 +602,15 @@ export default function Simulations() {
             </>
           )}
         </>
+      )}
+
+      {/* Team detail drawer */}
+      {drawerTeam && data && (
+        <TeamDrawer
+          team={drawerTeam}
+          allTeams={data.team_results}
+          onClose={() => setDrawerTeam(null)}
+        />
       )}
 
       {/* Comparison view */}

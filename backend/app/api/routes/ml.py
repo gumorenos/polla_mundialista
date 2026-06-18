@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from redis import Redis
 from rq import Queue
@@ -147,7 +147,6 @@ def predict_match(
     is_neutral: bool = True,
 ) -> dict[str, Any]:
     """Return ML-calibrated prediction for a single match."""
-    
     from app.services.prediction.ml_calibrated import get_cached_model
     with db_transaction() as conn:
         model = get_cached_model(conn)
@@ -156,3 +155,109 @@ def predict_match(
             context={"is_neutral": is_neutral},
         )
     return result
+
+
+# ---------------------------------------------------------------------------
+# GET /api/ml/shap/global  — global feature importance from active model
+# ---------------------------------------------------------------------------
+
+@router.get("/shap/global")
+def get_shap_global() -> dict[str, Any]:
+    """Return global SHAP feature importance from the active ML model."""
+    import json
+
+    from app.services.ml.shap_service import FEATURE_META
+
+    with db_transaction() as conn:
+        row = MLRepository(conn).get_active_shap_importance()
+
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No active ML model found. Run /api/ml/train first.",
+        )
+
+    raw_shap = row.get("shap_importance")
+    if not raw_shap:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="SHAP importance not computed for this model. Retrain to generate SHAP data.",
+        )
+
+    importance_map: dict[str, float] = json.loads(raw_shap)
+    features = [
+        {
+            "feature":    feat,
+            "label":      FEATURE_META.get(feat, {}).get("label", feat),
+            "importance": round(imp, 6),
+        }
+        for feat, imp in importance_map.items()
+    ]
+
+    return {
+        "model_id":  row["id"],
+        "algorithm": row["algorithm"],
+        "features":  features,
+    }
+
+
+# ---------------------------------------------------------------------------
+# GET /api/ml/shap  — per-match SHAP explanation
+# ---------------------------------------------------------------------------
+
+@router.get("/shap")
+def get_shap_match(
+    home: str = Query(..., description="Home team ID"),
+    away: str = Query(..., description="Away team ID"),
+    is_neutral: bool = Query(default=True),
+) -> dict[str, Any]:
+    """Return SHAP explanation for a single match using the active ML model."""
+    from app.services.ml.feature_builder import FEATURE_NAMES, build_match_features
+    from app.services.ml.shap_service import explain_match
+    from app.services.prediction.ml_calibrated import _safe_load_model
+
+    with db_transaction() as conn:
+        repo = MLRepository(conn)
+        model_row = repo.get_best_model()
+        if not model_row:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No active ML model found. Run /api/ml/train first.",
+            )
+
+        features, missing = build_match_features(home, away, conn, is_neutral)
+
+    model_path = model_row.get("model_path")
+    if not model_path:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Active model has no file path.",
+        )
+
+    try:
+        clf = _safe_load_model(model_path)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Could not load model file: {exc}",
+        )
+
+    import pandas as pd
+    X = pd.DataFrame([features], columns=FEATURE_NAMES)
+    proba = clf.predict_proba(X)[0]
+    prediction = {
+        "home_win": round(float(proba[0]), 4),
+        "draw":     round(float(proba[1]), 4),
+        "away_win": round(float(proba[2]), 4),
+    }
+
+    explanation = explain_match(clf, features, FEATURE_NAMES, home, away, prediction)
+
+    return {
+        "home_team":    home,
+        "away_team":    away,
+        "is_neutral":   is_neutral,
+        "features_missing": missing,
+        "prediction":   prediction,
+        "explanation":  explanation,
+    }

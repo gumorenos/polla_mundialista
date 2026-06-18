@@ -7,7 +7,8 @@ import {
   type SortingState,
 } from '@tanstack/react-table'
 import { useState } from 'react'
-import { useModelsComparison } from '../api/hooks'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
+import { useModelsComparison, useShapGlobal } from '../api/hooks'
 import type { ModelMetrics } from '../types'
 
 const col = createColumnHelper<ModelMetrics>()
@@ -46,6 +47,87 @@ const columns = [
   }),
 ]
 
+// ---------------------------------------------------------------------------
+// SHAP global importance chart
+// ---------------------------------------------------------------------------
+
+const SHAP_COLORS = [
+  '#3b82f6', '#6366f1', '#8b5cf6', '#a78bfa', '#c4b5fd',
+  '#ddd6fe', '#e0e7ff', '#c7d2fe', '#a5b4fc', '#818cf8',
+]
+
+function ShapGlobalChart() {
+  const { data, isLoading, error } = useShapGlobal()
+
+  if (isLoading) return <p className="text-sm text-gray-400">Cargando SHAP…</p>
+  if (error) {
+    return (
+      <p className="text-sm text-yellow-500">
+        SHAP no disponible — entrena el modelo ML para ver la importancia de features.
+      </p>
+    )
+  }
+  if (!data) return null
+
+  // Recharts needs the longest label to determine left margin
+  const chartData = data.features.map((f) => ({
+    label: f.label,
+    importance: parseFloat((f.importance * 100).toFixed(3)),
+  }))
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <h3 className="text-sm font-semibold uppercase tracking-wider text-gray-400">
+          Importancia global de features — ML Calibrado ({data.algorithm})
+        </h3>
+        <p className="mt-1 text-xs text-gray-500">
+          Contribución media |SHAP| de cada variable al predecir victoria del equipo local.
+        </p>
+      </div>
+      <div className="rounded-lg border border-gray-800 bg-gray-950 p-4">
+        <ResponsiveContainer width="100%" height={300}>
+          <BarChart
+            data={chartData}
+            layout="vertical"
+            margin={{ top: 0, right: 20, bottom: 0, left: 160 }}
+          >
+            <XAxis
+              type="number"
+              tick={{ fill: '#9ca3af', fontSize: 11 }}
+              tickFormatter={(v) => `${v.toFixed(2)}`}
+              axisLine={{ stroke: '#374151' }}
+              tickLine={false}
+            />
+            <YAxis
+              type="category"
+              dataKey="label"
+              tick={{ fill: '#d1d5db', fontSize: 11 }}
+              axisLine={false}
+              tickLine={false}
+              width={155}
+            />
+            <Tooltip
+              contentStyle={{ background: '#111827', border: '1px solid #374151', borderRadius: 6 }}
+              labelStyle={{ color: '#e5e7eb', fontWeight: 600, marginBottom: 4 }}
+              formatter={(v: number) => [`${v.toFixed(3)}`, 'Importancia SHAP']}
+            />
+            <Bar dataKey="importance" radius={[0, 3, 3, 0]}>
+              {chartData.map((_, i) => (
+                <Cell key={i} fill={SHAP_COLORS[i % SHAP_COLORS.length]} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Main page
+// ---------------------------------------------------------------------------
+
 export default function Models() {
   const { data, isLoading, error } = useModelsComparison()
   const [sorting, setSorting] = useState<SortingState>([{ id: 'brier_score', desc: false }])
@@ -60,7 +142,7 @@ export default function Models() {
   })
 
   return (
-    <div className="p-8 space-y-6">
+    <div className="p-4 sm:p-8 space-y-8">
       <div>
         <h2 className="text-2xl font-bold text-white">Comparación de modelos</h2>
         <p className="mt-1 text-sm text-gray-400">
@@ -119,6 +201,9 @@ export default function Models() {
           </table>
         </div>
       )}
+
+      {/* SHAP global importance */}
+      <ShapGlobalChart />
     </div>
   )
 }

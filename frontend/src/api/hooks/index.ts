@@ -8,6 +8,8 @@ import type {
   ModelMetrics,
   NewsResponse,
   NewsSummaryResponse,
+  ShapGlobal,
+  ShapMatch,
   Snapshot,
   SimulationComparison,
   SimulationDiff,
@@ -190,6 +192,28 @@ export function useTriggerNews() {
   return useMutation<EnqueueResponse, Error, void>({
     mutationFn: () => api.post<EnqueueResponse>('/api/news/trigger', {}),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['jobs'] }),
+  })
+}
+
+export function useShapGlobal() {
+  return useQuery<ShapGlobal>({
+    queryKey: ['ml', 'shap', 'global'],
+    queryFn: () => api.get<ShapGlobal>('/api/ml/shap/global'),
+    staleTime: 10 * 60 * 1000,
+    retry: false,
+  })
+}
+
+export function useShapMatch(home: string | null, away: string | null, isNeutral = true) {
+  return useQuery<ShapMatch>({
+    queryKey: ['ml', 'shap', 'match', home, away, isNeutral],
+    queryFn: () =>
+      api.get<ShapMatch>(
+        `/api/ml/shap?home=${encodeURIComponent(home!)}&away=${encodeURIComponent(away!)}&is_neutral=${isNeutral}`,
+      ),
+    enabled: !!home && !!away,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
   })
 }
 

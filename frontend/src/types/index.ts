@@ -206,3 +206,36 @@ export interface AppConfigEntry {
   description: string | null
   updated_at: string
 }
+
+export interface ShapFeature {
+  feature: string
+  label: string
+  importance: number
+}
+
+export interface ShapGlobal {
+  model_id: string
+  algorithm: string
+  features: ShapFeature[]
+}
+
+export interface ShapFactor {
+  feature: string
+  label: string
+  value: number
+  shap_contribution: number
+  direction: 'favors_home' | 'favors_away' | 'neutral'
+  description: string
+}
+
+export interface ShapMatch {
+  home_team: string
+  away_team: string
+  is_neutral: boolean
+  features_missing: string[]
+  prediction: { home_win: number; draw: number; away_win: number }
+  explanation: {
+    top_factors: ShapFactor[]
+    summary: string
+  }
+}
