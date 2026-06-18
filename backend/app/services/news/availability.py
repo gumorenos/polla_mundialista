@@ -23,6 +23,7 @@ from urllib.parse import urlparse
 
 from app.core.config import settings
 from app.db.repositories.availability import AvailabilityRepository
+from app.db.repositories.config import ConfigRepository
 from app.services.news.llm_classifier import classify_injury
 from app.services.news.scraper import extract_article_text, search_player_news, source_credibility
 
@@ -37,6 +38,17 @@ _STATUS_MAP = {
 }
 
 _MIN_CREDIBILITY = 0.3
+
+
+def _get_config(conn: sqlite3.Connection, key: str) -> float:
+    """Read a config value from app_config, falling back to settings."""
+    try:
+        raw = ConfigRepository(conn).get_value(key)
+        if raw is not None:
+            return float(raw)
+    except Exception:
+        pass
+    return float(getattr(settings, key))
 
 
 # ---------------------------------------------------------------------------
@@ -81,6 +93,7 @@ def run_news_analysis(db_conn: sqlite3.Connection) -> dict[str, Any]:
                     player=player,
                     country=team_key,
                     team_id=team_id,
+                    conn=db_conn,
                 )
 
                 # Phase 3: persist collected claims → short commit
@@ -123,6 +136,7 @@ def _collect_player_claims(
     player: str,
     country: str,
     team_id: str,
+    conn: sqlite3.Connection | None = None,
 ) -> tuple[list[dict[str, Any]], bool]:
     """Collect and classify articles for one player — pure network phase, NO DB writes.
 
@@ -133,7 +147,11 @@ def _collect_player_claims(
     - Skip articles without published_at (never substitute datetime.now()).
     - Skip UNRELATED classifications (not worth persisting).
     """
-    articles = search_player_news(country, player, settings.NEWS_DAYS_LOOKBACK)
+    days_lookback = int(_get_config(conn, "NEWS_DAYS_LOOKBACK")) if conn else settings.NEWS_DAYS_LOOKBACK
+    confidence_threshold = _get_config(conn, "NEWS_CONFIDENCE_THRESHOLD") if conn else settings.NEWS_CONFIDENCE_THRESHOLD
+    min_sources = int(_get_config(conn, "NEWS_MIN_SOURCES")) if conn else settings.NEWS_MIN_SOURCES
+
+    articles = search_player_news(country, player, days_lookback)
     confirmed_count = 0
     claim_dicts: list[dict[str, Any]] = []
 
@@ -176,7 +194,7 @@ def _collect_player_claims(
         db_status = _STATUS_MAP.get(classification["status"], "unknown")
         affects   = (
             classification["status"]    == "CONFIRMED"
-            and classification["confidence"] >= settings.NEWS_CONFIDENCE_THRESHOLD
+            and classification["confidence"] >= confidence_threshold
             and classification["miss_tournament"]
         )
 
@@ -199,14 +217,15 @@ def _collect_player_claims(
         if affects:
             confirmed_count += 1
 
-    is_injured = confirmed_count >= settings.NEWS_MIN_SOURCES
+    is_injured = confirmed_count >= min_sources
     return claim_dicts, is_injured
 
 
 def _expire_stale_claims(conn: sqlite3.Connection) -> None:
     """Mark availability claims older than NEWS_DAYS_LOOKBACK days as available."""
-    AvailabilityRepository(conn).expire_stale_claims(settings.NEWS_DAYS_LOOKBACK)
-    logger.debug("Expired stale claims older than %d days", settings.NEWS_DAYS_LOOKBACK)
+    days = int(_get_config(conn, "NEWS_DAYS_LOOKBACK"))
+    AvailabilityRepository(conn).expire_stale_claims(days)
+    logger.debug("Expired stale claims older than %d days", days)
 
 
 def _apply_penalties(
@@ -216,8 +235,8 @@ def _apply_penalties(
 ) -> None:
     """Insert a team_context_adjustments row with injury-based penalty factors."""
     n              = len(injured_players)
-    attack_factor  = (1.0 - settings.INJURY_ATTACK_PENALTY)  ** n
-    defense_factor = (1.0 + settings.INJURY_DEFENSE_PENALTY) ** n
+    attack_factor  = (1.0 - _get_config(conn, "INJURY_ATTACK_PENALTY"))  ** n
+    defense_factor = (1.0 + _get_config(conn, "INJURY_DEFENSE_PENALTY")) ** n
 
     AvailabilityRepository(conn).insert_context_adjustment(
         team_id=team_id,

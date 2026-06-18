@@ -199,3 +199,10 @@ export interface EnqueueResponse {
   rq_job_id: string
   status: string
 }
+
+export interface AppConfigEntry {
+  key: string
+  value: string
+  description: string | null
+  updated_at: string
+}

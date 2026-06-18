@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../client'
 import type {
+  AppConfigEntry,
   CalibrationBin,
   EnqueueResponse,
   JobRecord,
@@ -189,5 +190,30 @@ export function useTriggerNews() {
   return useMutation<EnqueueResponse, Error, void>({
     mutationFn: () => api.post<EnqueueResponse>('/api/news/trigger', {}),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['jobs'] }),
+  })
+}
+
+export function useAppConfig() {
+  return useQuery<AppConfigEntry[]>({
+    queryKey: ['app-config'],
+    queryFn: () => api.get<AppConfigEntry[]>('/api/config'),
+    staleTime: 30_000,
+  })
+}
+
+export function useUpdateConfig() {
+  const qc = useQueryClient()
+  return useMutation<AppConfigEntry, Error, { key: string; value: string }>({
+    mutationFn: ({ key, value }) =>
+      api.put<AppConfigEntry>(`/api/config/${encodeURIComponent(key)}`, { value }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['app-config'] }),
+  })
+}
+
+export function useResetConfig() {
+  const qc = useQueryClient()
+  return useMutation<AppConfigEntry[], Error, void>({
+    mutationFn: () => api.post<AppConfigEntry[]>('/api/config/reset', {}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['app-config'] }),
   })
 }

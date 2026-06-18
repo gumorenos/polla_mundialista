@@ -419,6 +419,34 @@ def _m007_availability_published_at(conn: sqlite3.Connection) -> None:
     _add_col(conn, "availability_claims", "published_at", "TEXT")
 
 
+_DEFAULT_APP_CONFIG: dict[str, tuple[str, str]] = {
+    "NEWS_CONFIDENCE_THRESHOLD": ("0.7", "Confianza mínima del LLM para aplicar ajuste"),
+    "INJURY_ATTACK_PENALTY":     ("0.15", "Penalización ataque por lesión (0.0 - 0.5)"),
+    "INJURY_DEFENSE_PENALTY":    ("0.05", "Penalización defensa por lesión (0.0 - 0.5)"),
+    "NEWS_MIN_SOURCES":          ("2", "Fuentes mínimas para confirmar lesión"),
+    "NEWS_DAYS_LOOKBACK":        ("7", "Días de lookback para noticias"),
+}
+
+
+def _m008_app_config(conn: sqlite3.Connection) -> None:
+    """Dynamic configuration table — overrides settings.py values at runtime."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS app_config (
+            key         TEXT PRIMARY KEY,
+            value       TEXT NOT NULL,
+            description TEXT,
+            updated_at  TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    for key, (value, description) in _DEFAULT_APP_CONFIG.items():
+        conn.execute(
+            "INSERT OR IGNORE INTO app_config (key, value, description) VALUES (?, ?, ?)",
+            (key, value, description),
+        )
+
+
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
@@ -431,6 +459,7 @@ _MIGRATIONS = [
     _m005_admin_password_history,
     _m006_admin_credentials,
     _m007_availability_published_at,
+    _m008_app_config,
 ]
 
 

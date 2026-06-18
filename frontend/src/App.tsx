@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import Layout from './components/Layout'
 import Calibration from './pages/Calibration'
 import ChangePassword from './pages/ChangePassword'
+import Config from './pages/Config'
 import Dashboard from './pages/Dashboard'
 import Jobs from './pages/Jobs'
 import Login from './pages/Login'
@@ -57,6 +58,7 @@ export default function App() {
           <Route path="calibration" element={<Calibration />} />
           <Route path="jobs" element={<Jobs />} />
           <Route path="news" element={<News />} />
+          <Route path="config" element={<Config />} />
         </Route>
       </Routes>
     </BrowserRouter>

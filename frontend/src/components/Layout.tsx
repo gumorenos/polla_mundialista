@@ -12,6 +12,7 @@ const navItems = [
   { to: '/calibration', label: 'Calibración' },
   { to: '/jobs', label: 'Jobs' },
   { to: '/news', label: 'Noticias' },
+  { to: '/config', label: '⚙ Configuración' },
 ]
 
 const themeOptions: { value: Theme; label: string; icon: string; title: string }[] = [
