@@ -86,13 +86,14 @@ def run_full_refresh(
     Steps (with progress milestones):
       1. CSV ingestion        0.05  — mandatory
       2. ELO scraping         0.15  — fault-tolerant
-      3. API Football         0.25  — fault-tolerant
-      4. Team strengths       0.35  — mandatory
-      5. News analysis        0.45  — fault-tolerant
-      6. Backtesting          0.60  — mandatory
-      7. ML training          0.75  — fault-tolerant
-      8. Monte Carlo sims     0.95  — mandatory
-      9. Snapshot             1.00  — mandatory
+      3. Own ELO recalc       0.22  — fault-tolerant
+      4. API Football         0.25  — fault-tolerant
+      5. Team strengths       0.35  — mandatory
+      6. News analysis        0.45  — fault-tolerant
+      7. Backtesting          0.60  — mandatory
+      8. ML training          0.75  — fault-tolerant
+      9. Monte Carlo sims     0.95  — mandatory
+     10. Snapshot             1.00  — mandatory
     """
     from app.core.config import settings
     from app.db.repositories.simulations import SimulationRepository
@@ -128,7 +129,7 @@ def run_full_refresh(
     # ------------------------------------------------------------------
     if cancel_check:
         cancel_check()
-    with _StepTimer("CSV ingestion", 1, 9):
+    with _StepTimer("CSV ingestion", 1, 10):
         teams    = load_teams_from_csv()
         groups   = load_groups_from_csv()
         fixtures = load_fixtures_from_csv()
@@ -149,7 +150,7 @@ def run_full_refresh(
     # Step 2 — ELO scraping (fault-tolerant)
     # ------------------------------------------------------------------
     try:
-        with _StepTimer("ELO scraping", 2, 9):
+        with _StepTimer("ELO scraping", 2, 10):
             summary["elo_scrape"] = {"records": ingest_elo_ratings()}
     except InterruptedError:
         raise
@@ -159,10 +160,25 @@ def run_full_refresh(
     _progress(0.15)
 
     # ------------------------------------------------------------------
-    # Step 3 — API Football (fault-tolerant)
+    # Step 3 — Own ELO recalculation (fault-tolerant)
     # ------------------------------------------------------------------
     try:
-        with _StepTimer("API Football", 3, 9):
+        with _StepTimer("Own ELO recalculation", 3, 10):
+            from app.services.elo.calculator import recalculate_all_elos
+            summary["elo_recalc"] = recalculate_all_elos(db_conn)
+            db_conn.commit()
+    except InterruptedError:
+        raise
+    except Exception as exc:
+        logger.warning("Own ELO recalculation failed (non-fatal): %s", exc)
+        summary["elo_recalc"] = {"status": "failed", "error": str(exc)}
+    _progress(0.22)
+
+    # ------------------------------------------------------------------
+    # Step 4 — API Football (fault-tolerant)
+    # ------------------------------------------------------------------
+    try:
+        with _StepTimer("API Football", 4, 10):
             from app.services.ingestion.api_football import ingest_api_fixtures
             summary["api_football"] = {"records": ingest_api_fixtures(conn=db_conn)}
     except InterruptedError:
@@ -175,7 +191,7 @@ def run_full_refresh(
     # ------------------------------------------------------------------
     # Step 4 — Team strengths (mandatory)
     # ------------------------------------------------------------------
-    with _StepTimer("Team strengths", 4, 9):
+    with _StepTimer("Team strengths", 5, 10):
         strengths = calculate_team_strengths(db_conn)
         summary["features"] = {"n_teams": len(strengths)}
     _progress(0.35)
@@ -184,7 +200,7 @@ def run_full_refresh(
     # Step 5 — News / injuries (fault-tolerant)
     # ------------------------------------------------------------------
     try:
-        with _StepTimer("News analysis", 5, 9):
+        with _StepTimer("News analysis", 6, 10):
             summary["news"] = run_news_analysis(db_conn)
     except InterruptedError:
         raise
@@ -196,7 +212,7 @@ def run_full_refresh(
     # ------------------------------------------------------------------
     # Step 6 — Backtesting (mandatory) — últimos 2 años, máx 500 partidos
     # ------------------------------------------------------------------
-    with _StepTimer("Backtesting", 6, 9):
+    with _StepTimer("Backtesting", 7, 10):
         summary["backtesting"] = run_backtesting(
             db_conn,
             models=_ALL_MODELS,
@@ -209,7 +225,7 @@ def run_full_refresh(
     # Step 7 — ML training (fault-tolerant)
     # ------------------------------------------------------------------
     try:
-        with _StepTimer("ML training", 7, 9):
+        with _StepTimer("ML training", 8, 10):
             summary["ml_training"] = train_ml_model(db_conn)
     except InterruptedError:
         raise
@@ -222,7 +238,7 @@ def run_full_refresh(
     # Step 8 — Monte Carlo for all models (mandatory)
     # ------------------------------------------------------------------
     sim_run_ids: dict[str, str] = {}
-    with _StepTimer("Monte Carlo simulations", 8, 9):
+    with _StepTimer("Monte Carlo simulations", 9, 10):
         for model_name in _ALL_MODELS:
             try:
                 run_id = run_monte_carlo(
@@ -241,7 +257,7 @@ def run_full_refresh(
     # ------------------------------------------------------------------
     # Step 9 — Snapshot (mandatory)
     # ------------------------------------------------------------------
-    with _StepTimer("Snapshot", 9, 9):
+    with _StepTimer("Snapshot", 10, 10):
         best_run_id = next(
             (rid for rid in sim_run_ids.values() if not rid.startswith("failed:")),
             None,
@@ -297,6 +313,16 @@ def run_daily_update(
     except Exception as exc:
         logger.warning("API Football incremental failed: %s", exc)
         summary["api_football"] = {"status": "failed", "error": str(exc)}
+    _progress(0.15)
+
+    # Step 1b — Incremental ELO update (fault-tolerant)
+    try:
+        from app.services.elo.calculator import update_elos_for_new_matches
+        summary["elo_update"] = update_elos_for_new_matches(db_conn)
+        db_conn.commit()
+    except Exception as exc:
+        logger.warning("Incremental ELO update failed: %s", exc)
+        summary["elo_update"] = {"status": "failed", "error": str(exc)}
     _progress(0.20)
 
     # Step 2 — News analysis

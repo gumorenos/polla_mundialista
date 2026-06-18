@@ -24,6 +24,7 @@ vi.mock('../api/hooks', () => ({
   useShapMatch: () => ({ data: null, isLoading: false, error: null }),
   useTeamNarrative: () => ({ data: null, isLoading: false, error: null }),
   useOddsValue: () => ({ data: null, isLoading: false, error: null }),
+  useEloHistory: () => ({ data: null, isLoading: false, error: null }),
 }))
 
 describe('Simulations', () => {

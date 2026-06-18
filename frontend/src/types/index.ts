@@ -275,3 +275,15 @@ export interface ShapMatch {
     summary: string
   }
 }
+
+export interface EloHistoryEntry {
+  match_date: string
+  elo_rating: number
+  elo_change: number
+  opponent_id: string | null
+  opponent_name: string | null
+  goals_for: number | null
+  goals_against: number | null
+}
+
+export type EloHistory = EloHistoryEntry[]

@@ -3,6 +3,7 @@ import { api } from '../client'
 import type {
   AppConfigEntry,
   CalibrationBin,
+  EloHistory,
   EnqueueResponse,
   JobRecord,
   ModelMetrics,
@@ -259,6 +260,16 @@ export function useTournamentNarrative(runId: string | null) {
       api.get<NarrativeResponse>(`/api/simulations/${runId}/narrative/tournament`),
     enabled: !!runId,
     staleTime: 6 * 60 * 60 * 1000,
+    retry: false,
+  })
+}
+
+export function useEloHistory(teamId: string | null) {
+  return useQuery<EloHistory>({
+    queryKey: ['elo-history', teamId],
+    queryFn: () => api.get<EloHistory>(`/api/teams/${teamId}/elo-history`),
+    enabled: !!teamId,
+    staleTime: 30 * 60 * 1000,
     retry: false,
   })
 }

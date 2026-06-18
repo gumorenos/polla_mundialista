@@ -433,6 +433,29 @@ def _m009_ml_models_shap(conn: sqlite3.Connection) -> None:
     _add_col(conn, "ml_models", "shap_importance", "TEXT")
 
 
+def _m012_elo_history(conn: sqlite3.Connection) -> None:
+    """Per-match ELO snapshot table for tracking own-calculated rating evolution."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS elo_history (
+            id            TEXT PRIMARY KEY,
+            team_id       TEXT NOT NULL,
+            elo_rating    REAL NOT NULL,
+            match_date    TEXT NOT NULL,
+            opponent_id   TEXT,
+            goals_for     INTEGER,
+            goals_against INTEGER,
+            elo_change    REAL,
+            FOREIGN KEY (team_id) REFERENCES teams(id)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_elo_history_team_date "
+        "ON elo_history(team_id, match_date)"
+    )
+
+
 def _m011_market_odds(conn: sqlite3.Connection) -> None:
     """Market odds from The Odds API — bookmaker tournament winner prices."""
     conn.execute(
@@ -509,6 +532,7 @@ _MIGRATIONS = [
     _m009_ml_models_shap,
     _m010_narrative_cache,
     _m011_market_odds,
+    _m012_elo_history,
 ]
 
 

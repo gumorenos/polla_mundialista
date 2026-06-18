@@ -39,6 +39,32 @@ class RatingRepository:
             ).fetchone()
         )
 
+    def list_latest_excluding_source(
+        self, rating_type: str, exclude_source: str
+    ) -> list[dict[str, Any]]:
+        """Latest rating per team excluding rows with *exclude_source*.
+
+        Prevents our own computed ELOs from drifting when used as their own baseline.
+        """
+        rows = self._c.execute(
+            """
+            SELECT r.team_id, r.value, r.effective_date, r.source
+            FROM ratings r
+            INNER JOIN (
+                SELECT team_id, MAX(effective_date) AS max_date
+                FROM ratings
+                WHERE rating_type = ? AND source != ?
+                GROUP BY team_id
+            ) latest ON r.team_id = latest.team_id
+                     AND r.effective_date = latest.max_date
+                     AND r.rating_type = ?
+                     AND r.source != ?
+            ORDER BY r.value DESC
+            """,
+            (rating_type, exclude_source, rating_type, exclude_source),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     def list_latest_all(self, rating_type: str) -> list[dict[str, Any]]:
         """Return the most recent rating of *rating_type* for every team."""
         rows = self._c.execute(

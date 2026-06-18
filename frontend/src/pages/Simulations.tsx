@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
-import { useRunSimulation, useSimulations, useSimulationComparison, useSimulationDiff, useShapGlobal, useShapMatch, useTeamNarrative, useOddsValue } from '../api/hooks'
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from 'recharts'
+import { useRunSimulation, useSimulations, useSimulationComparison, useSimulationDiff, useShapGlobal, useShapMatch, useTeamNarrative, useOddsValue, useEloHistory } from '../api/hooks'
 import type { TeamResult, SimulationComparisonTeam, SimulationDiffTeam, ShapFactor, OddsValueTeam } from '../types'
 
 const MODELS = ['baseline', 'elo', 'poisson', 'poisson_context', 'ml_calibrated']
@@ -349,6 +349,7 @@ function TeamDrawer({
   const [opponent, setOpponent] = useState<string>('')
   const shapGlobal = useShapGlobal()
   const narrative = useTeamNarrative(runId, team.team_id)
+  const eloHistory = useEloHistory(team.team_id)
 
   const opponents = allTeams.filter((t) => t.team_id !== team.team_id)
   const oppTeam = opponents.find((t) => t.team_id === opponent)
@@ -482,6 +483,68 @@ function TeamDrawer({
                       ))}
                     </Bar>
                   </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+
+          {/* ELO history chart */}
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--color-muted)' }}>
+              Histórico ELO propio
+            </p>
+            {eloHistory.isLoading && <p className="text-xs text-gray-500">Cargando…</p>}
+            {eloHistory.error && (
+              <p className="text-xs text-yellow-500">Sin datos ELO para este equipo.</p>
+            )}
+            {eloHistory.data && eloHistory.data.length > 0 && (
+              <div className="rounded border overflow-hidden" style={{ borderColor: 'var(--color-border)' }}>
+                <ResponsiveContainer width="100%" height={180}>
+                  <LineChart
+                    data={eloHistory.data.map((e) => ({
+                      date: e.match_date.slice(0, 10),
+                      elo: e.elo_rating,
+                      change: e.elo_change,
+                      opponent: e.opponent_name ?? e.opponent_id ?? '',
+                      result: e.goals_for != null && e.goals_against != null
+                        ? `${e.goals_for}–${e.goals_against}`
+                        : '',
+                    }))}
+                    margin={{ top: 6, right: 8, bottom: 4, left: 10 }}
+                  >
+                    <XAxis
+                      dataKey="date"
+                      tick={{ fill: '#6b7280', fontSize: 9 }}
+                      axisLine={false}
+                      tickLine={false}
+                      interval="preserveStartEnd"
+                    />
+                    <YAxis
+                      domain={['auto', 'auto']}
+                      tick={{ fill: '#6b7280', fontSize: 9 }}
+                      axisLine={false}
+                      tickLine={false}
+                      width={40}
+                    />
+                    <ReferenceLine y={1500} stroke="#374151" strokeDasharray="3 3" />
+                    <Tooltip
+                      contentStyle={{ background: '#111827', border: '1px solid #374151', borderRadius: 6, fontSize: 10 }}
+                      formatter={(v: number, _: string, props: { payload?: { opponent: string; result: string; change: number } }) => {
+                        const p = props.payload
+                        const detail = p ? ` vs ${p.opponent} (${p.result}) Δ${p.change >= 0 ? '+' : ''}${p.change}` : ''
+                        return [`${v.toFixed(0)}${detail}`, 'ELO']
+                      }}
+                      labelFormatter={(l) => l}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="elo"
+                      stroke="#3b82f6"
+                      strokeWidth={1.5}
+                      dot={false}
+                      activeDot={{ r: 3 }}
+                    />
+                  </LineChart>
                 </ResponsiveContainer>
               </div>
             )}

@@ -20,6 +20,7 @@ from app.api.routes.news import router as news_router
 from app.api.routes.ml import router as ml_router
 from app.api.routes.odds import router as odds_router
 from app.api.routes.pipelines import router as pipelines_router
+from app.api.routes.teams import router as teams_router
 from app.api.routes.simulations import router as simulations_router
 from app.api.routes.snapshots import router as snapshots_router
 from app.core.config import settings
@@ -98,3 +99,4 @@ app.include_router(evaluations_router)
 app.include_router(metrics_router)
 app.include_router(news_router)
 app.include_router(odds_router)
+app.include_router(teams_router)
