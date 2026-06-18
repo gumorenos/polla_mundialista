@@ -22,7 +22,12 @@ def start_scheduler() -> None:
     from apscheduler.triggers.cron import CronTrigger
 
     from app.core.config import settings
-    from app.scheduler.jobs import check_and_snapshot, enqueue_full_refresh, enqueue_news_update
+    from app.scheduler.jobs import (
+        check_and_snapshot,
+        enqueue_full_refresh,
+        enqueue_news_update,
+        reconcile_jobs,
+    )
 
     s = get_scheduler()
     if s.running:
@@ -50,6 +55,15 @@ def start_scheduler() -> None:
         id="check_and_snapshot",
         replace_existing=True,
         misfire_grace_time=600,
+    )
+    # FIX 3: reconcile abandoned RQ jobs every 5 minutes
+    s.add_job(
+        reconcile_jobs,
+        "interval",
+        minutes=5,
+        id="reconcile_jobs",
+        replace_existing=True,
+        misfire_grace_time=120,
     )
     s.start()
     logger.info("Scheduler started — %d jobs registered", len(s.get_jobs()))

@@ -292,6 +292,14 @@ def run_daily_update_task(
 
     def _do_run(conn: sqlite3.Connection) -> dict:
         job_repo = JobRepository(conn)
+        # FIX 2: verify the job record exists before doing any work
+        if not job_repo.get_by_id(job_id):
+            logger.error(
+                "run_daily_update_task: job_id '%s' not found in DB — aborting", job_id
+            )
+            raise RuntimeError(
+                f"run_daily_update_task: job '{job_id}' does not exist in DB"
+            )
         job_repo.update_status(
             job_id, "running",
             started_at=datetime.now(timezone.utc).isoformat(),
@@ -454,6 +462,12 @@ def run_news_task(
 
     def _do_run(conn: sqlite3.Connection) -> dict:
         job_repo = JobRepository(conn)
+        # FIX 2: verify the job record exists before doing any work
+        if not job_repo.get_by_id(job_id):
+            logger.error(
+                "run_news_task: job_id '%s' not found in DB — aborting", job_id
+            )
+            raise RuntimeError(f"run_news_task: job '{job_id}' does not exist in DB")
         job_repo.update_status(
             job_id, "running",
             started_at=datetime.now(timezone.utc).isoformat(),

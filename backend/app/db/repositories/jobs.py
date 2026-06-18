@@ -85,6 +85,18 @@ class JobRepository:
             ).fetchall()
         ]
 
+    def list_active(self) -> list[dict[str, Any]]:
+        """Return all jobs in non-terminal states (enqueued/started/running/cancelling)."""
+        statuses = ("enqueued", "started", "running", "cancelling")
+        placeholders = ",".join("?" * len(statuses))
+        return [
+            dict(r)
+            for r in self._c.execute(
+                f"SELECT * FROM jobs WHERE status IN ({placeholders}) ORDER BY created_at",
+                statuses,
+            ).fetchall()
+        ]
+
     def cancel(self, job_id: str) -> bool:
         """Mark job as cancelled immediately (for enqueued jobs). Returns True if updated."""
         cur = self._c.execute(

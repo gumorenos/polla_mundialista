@@ -443,6 +443,8 @@ def fix_stuck_records(conn: sqlite3.Connection) -> tuple[int, int]:
     Returns:
         (simulation_runs_fixed, jobs_fixed)
     """
+    # FIX 3: wrap column values with datetime() to safely compare ISO strings
+    # that may include timezone offsets (e.g. "2026-06-18T10:00:00+00:00").
     cur_sim = conn.execute(
         """
         UPDATE simulation_runs
@@ -451,7 +453,7 @@ def fix_stuck_records(conn: sqlite3.Connection) -> tuple[int, int]:
             error_message = 'Stuck in running state — fixed on startup'
         WHERE status = 'running'
           AND finished_at IS NULL
-          AND started_at < datetime('now', '-30 minutes')
+          AND datetime(started_at) < datetime('now', '-30 minutes')
         """
     )
     cur_job = conn.execute(
@@ -462,7 +464,7 @@ def fix_stuck_records(conn: sqlite3.Connection) -> tuple[int, int]:
             error_message = 'Stuck in running state — fixed on startup'
         WHERE status IN ('running', 'started')
           AND finished_at IS NULL
-          AND started_at < datetime('now', '-30 minutes')
+          AND datetime(started_at) < datetime('now', '-30 minutes')
         """
     )
     conn.commit()

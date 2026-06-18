@@ -18,6 +18,8 @@ vi.mock('../api/hooks', () => ({
     error: null,
   }),
   useRunSimulation: () => ({ mutate: vi.fn(), isPending: false, isSuccess: false, data: null }),
+  useSimulationComparison: () => ({ data: null, isLoading: false, error: null }),
+  useSimulationDiff: () => ({ data: null, isLoading: false, error: null }),
 }))
 
 describe('Simulations', () => {

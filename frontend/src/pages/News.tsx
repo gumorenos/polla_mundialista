@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import { useNews, useNewsSummary, useTriggerNews } from '../api/hooks'
+import { useEffect, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
+import { useNews, useNewsSummary, useTriggerNews, useJobStatus } from '../api/hooks'
 import type { NewsClaim, NewsTeamSummary } from '../types'
 
 const STATUS_LABELS: Record<string, string> = {
@@ -167,14 +168,46 @@ function NewsRow({ item }: { item: NewsClaim }) {
 export default function News() {
   const [classificationFilter, setClassificationFilter] = useState('')
   const [teamFilter, setTeamFilter] = useState('')
+  // FIX 6: track the job enqueued by "Actualizar Noticias" to invalidate on complete
+  const [trackedJobId, setTrackedJobId] = useState<string | null>(null)
 
+  const qc = useQueryClient()
   const triggerNews = useTriggerNews()
+  const jobStatus = useJobStatus(trackedJobId)
   const summary = useNewsSummary()
   const { data, isLoading, error } = useNews({
     classification: classificationFilter || undefined,
     team_id: teamFilter || undefined,
     limit: 100,
   })
+
+  // Start tracking job right after trigger succeeds
+  useEffect(() => {
+    if (triggerNews.isSuccess && triggerNews.data?.job_id) {
+      setTrackedJobId(triggerNews.data.job_id)
+    }
+  }, [triggerNews.isSuccess, triggerNews.data])
+
+  // Invalidate news queries on job completion; clear tracking on terminal state
+  useEffect(() => {
+    if (!trackedJobId || !jobStatus.data) return
+    const s = jobStatus.data.status
+    if (s === 'completed') {
+      qc.invalidateQueries({ queryKey: ['news'] })
+      setTrackedJobId(null)
+    } else if (s === 'failed' || s === 'cancelled') {
+      setTrackedJobId(null)
+    }
+  }, [jobStatus.data?.status, trackedJobId, qc])
+
+  const isJobRunning = !!trackedJobId && (
+    jobStatus.data?.status === 'enqueued' ||
+    jobStatus.data?.status === 'started' ||
+    jobStatus.data?.status === 'running'
+  )
+  const jobFailed = !trackedJobId && triggerNews.isSuccess && (
+    jobStatus.data?.status === 'failed' || jobStatus.data?.status === 'cancelled'
+  )
 
   return (
     <div className="p-4 sm:p-8 space-y-6">
@@ -193,14 +226,24 @@ export default function News() {
         </div>
         <button
           onClick={() => triggerNews.mutate()}
-          disabled={triggerNews.isPending}
+          disabled={triggerNews.isPending || isJobRunning}
           className="rounded bg-blue-700 px-4 py-2 text-sm text-white hover:bg-blue-600 disabled:opacity-50 min-h-[44px] sm:w-auto"
         >
-          {triggerNews.isPending ? 'Encolando…' : 'Actualizar Noticias'}
+          {triggerNews.isPending ? 'Encolando…' : isJobRunning ? 'Actualizando…' : 'Actualizar Noticias'}
         </button>
       </div>
 
-      {triggerNews.isSuccess && (
+      {isJobRunning && (
+        <div className="rounded bg-blue-900/40 border border-blue-800 px-4 py-2 text-sm text-blue-300">
+          Análisis de noticias en progreso — job: {trackedJobId}
+        </div>
+      )}
+      {jobFailed && (
+        <div className="rounded bg-red-900/40 border border-red-800 px-4 py-2 text-sm text-red-300">
+          La actualización de noticias falló o fue cancelada.
+        </div>
+      )}
+      {triggerNews.isSuccess && !trackedJobId && !jobFailed && (
         <div className="rounded bg-green-900/40 border border-green-800 px-4 py-2 text-sm text-green-300">
           Job de noticias encolado — id: {triggerNews.data.job_id}
         </div>

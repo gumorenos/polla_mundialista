@@ -65,33 +65,18 @@ def enqueue_full_refresh(request: Request) -> dict[str, Any]:
 @router.post("/daily-update", dependencies=[Depends(require_admin)])
 @limiter.limit(settings.RATE_LIMIT_ADMIN)
 def enqueue_daily_update(request: Request) -> dict[str, Any]:
-    """Enqueue the incremental daily update in the 'default' RQ queue."""
+    """Enqueue the incremental daily update. FIX 2: uses enqueue_job helper."""
+    from app.core.job_helper import enqueue_job
     from app.workers.tasks import run_daily_update_task
 
-    with db_transaction() as conn:
-        job_id = JobRepository(conn).create({
-            "job_type": "daily_update",
-            "status": "enqueued",
-            "progress": 0.0,
-        })
-        conn.commit()
-
-    redis_conn = Redis.from_url(settings.REDIS_URL)
-    q = Queue("default", connection=redis_conn)
-    rq_job = q.enqueue(
-        run_daily_update_task, job_id,
-        job_timeout=settings.RQ_DEFAULT_TIMEOUT,
+    result = enqueue_job(
+        "default",
+        run_daily_update_task,
+        job_type="daily_update",
+        timeout=settings.RQ_DEFAULT_TIMEOUT,
     )
-
-    try:
-        with db_transaction() as conn:
-            JobRepository(conn).update_rq_job_id(job_id, rq_job.id)
-            conn.commit()
-    except Exception:
-        logger.exception("Daily update enqueued in RQ but rq_job_id update failed: db_job=%s rq=%s", job_id, rq_job.id)
-
-    logger.info("Daily update enqueued: rq=%s db_job=%s", rq_job.id, job_id)
-    return {"job_id": job_id, "rq_job_id": rq_job.id, "status": "enqueued"}
+    logger.info("Daily update enqueued: rq=%s db_job=%s", result["rq_job_id"], result["job_id"])
+    return result
 
 
 # ---------------------------------------------------------------------------

@@ -39,6 +39,17 @@ async def lifespan(app: FastAPI):
             "Startup cleanup: fixed %d stuck simulation_runs, %d stuck jobs",
             sims_fixed, jobs_fixed,
         )
+    # FIX 3: reconcile abandoned RQ jobs on startup
+    try:
+        from app.jobs.reconciler import reconcile_rq_jobs
+        reconcile_result = reconcile_rq_jobs()
+        if reconcile_result["updated"] > 0:
+            logger.warning(
+                "Startup reconcile: updated %d abandoned RQ jobs",
+                reconcile_result["updated"],
+            )
+    except Exception:
+        logger.exception("Startup reconcile_rq_jobs failed (non-fatal)")
     if settings.SCHEDULER_ENABLED:
         from app.scheduler.scheduler import start_scheduler
         start_scheduler()

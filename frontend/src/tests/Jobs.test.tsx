@@ -62,9 +62,9 @@ describe('Jobs', () => {
 
   it('shows job types', () => {
     render(<MemoryRouter><Jobs /></MemoryRouter>)
-    expect(screen.getByText('full_refresh')).toBeInTheDocument()
+    expect(screen.getByText('Full Refresh')).toBeInTheDocument()
     expect(screen.getByText('simulation')).toBeInTheDocument()
-    expect(screen.getByText('daily_update')).toBeInTheDocument()
+    expect(screen.getByText('Daily Update')).toBeInTheDocument()
   })
 
   it('shows status badges', () => {

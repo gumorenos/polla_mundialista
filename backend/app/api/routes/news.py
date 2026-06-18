@@ -11,7 +11,6 @@ from app.api.dependencies import require_admin
 from app.core.config import settings
 from app.core.limiter import limiter
 from app.db.connection import db_transaction
-from app.db.repositories.jobs import JobRepository
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/news", tags=["news"])
@@ -27,7 +26,11 @@ def list_news(
     classification: str | None = Query(default=None, description="injured|doubtful|available|unknown"),
     limit: int = Query(default=50, ge=1, le=200),
 ) -> dict[str, Any]:
-    """Return latest news/injury claims with optional filters."""
+    """Return latest news/injury claims with optional filters.
+
+    FIX 6: last_updated comes from MAX(jobs.finished_at) WHERE job_type='news'
+    AND status='completed', falling back to MAX(availability_claims.observed_at).
+    """
     with db_transaction() as conn:
         where_clauses = ["1=1"]
         params: list[Any] = []
@@ -68,10 +71,22 @@ def list_news(
             params,
         ).fetchall()
 
-        last_updated_row = conn.execute(
-            "SELECT MAX(observed_at) AS ts FROM availability_claims"
+        # FIX 6: use most recent completed news job as last_updated
+        job_row = conn.execute(
+            """
+            SELECT MAX(finished_at) AS ts
+            FROM jobs
+            WHERE job_type = 'news' AND status = 'completed'
+            """
         ).fetchone()
-        last_updated = last_updated_row["ts"] if last_updated_row else None
+        last_updated = job_row["ts"] if job_row and job_row["ts"] else None
+
+        # Fallback to claims timestamp if no completed job exists
+        if not last_updated:
+            claim_row = conn.execute(
+                "SELECT MAX(observed_at) AS ts FROM availability_claims"
+            ).fetchone()
+            last_updated = claim_row["ts"] if claim_row else None
 
         total = conn.execute(
             "SELECT COUNT(*) FROM availability_claims"
@@ -140,34 +155,15 @@ def news_summary() -> dict[str, Any]:
 @router.post("/trigger", dependencies=[Depends(require_admin)])
 @limiter.limit(settings.RATE_LIMIT_ADMIN)
 def trigger_news_update(request: Request) -> dict[str, Any]:
-    """Enqueue a news analysis job in the 'default' RQ queue."""
+    """Enqueue a news analysis job. FIX 2: uses enqueue_job helper with lock-retry."""
+    from app.core.job_helper import enqueue_job
     from app.workers.tasks import run_news_task
 
-    import redis as redis_lib
-    from rq import Queue
-
-    with db_transaction() as conn:
-        job_id = JobRepository(conn).create({
-            "job_type": "news",
-            "status": "enqueued",
-            "progress": 0.0,
-        })
-        conn.commit()
-
-    redis_conn = redis_lib.from_url(settings.REDIS_URL)
-    q = Queue("default", connection=redis_conn)
-    rq_job = q.enqueue(
+    result = enqueue_job(
+        "default",
         run_news_task,
-        job_id,
-        job_timeout=settings.RQ_DEFAULT_TIMEOUT,
+        job_type="news",
+        timeout=settings.RQ_DEFAULT_TIMEOUT,
     )
-
-    try:
-        with db_transaction() as conn:
-            JobRepository(conn).update_rq_job_id(job_id, rq_job.id)
-            conn.commit()
-    except Exception:
-        logger.exception("News job enqueued in RQ but rq_job_id update failed: db_job=%s rq=%s", job_id, rq_job.id)
-
-    logger.info("News update enqueued: rq=%s db_job=%s", rq_job.id, job_id)
-    return {"job_id": job_id, "rq_job_id": rq_job.id, "status": "enqueued"}
+    logger.info("News update enqueued: rq=%s db_job=%s", result["rq_job_id"], result["job_id"])
+    return result

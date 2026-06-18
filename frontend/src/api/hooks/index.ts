@@ -75,7 +75,8 @@ export function useJobStatus(jobId: string | null) {
     enabled: !!jobId,
     refetchInterval: (query) => {
       const status = query.state.data?.status
-      if (status === 'completed' || status === 'failed') return false
+      // FIX 4: stop polling for all terminal states including cancelled
+      if (status === 'completed' || status === 'failed' || status === 'cancelled') return false
       return 3_000
     },
   })

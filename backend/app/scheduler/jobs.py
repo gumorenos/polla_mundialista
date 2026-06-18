@@ -126,6 +126,18 @@ def check_and_snapshot() -> None:
         logger.exception("check_and_snapshot failed")
 
 
+def reconcile_jobs() -> None:
+    """Reconcile abandoned RQ jobs with DB records. Called every 5 min by scheduler."""
+    from app.jobs.reconciler import reconcile_rq_jobs
+
+    try:
+        result = reconcile_rq_jobs()
+        if result["updated"] > 0:
+            logger.info("reconcile_jobs (scheduled): %s", result)
+    except Exception:
+        logger.exception("reconcile_jobs failed")
+
+
 def _enqueue_pre_match_snapshot(label: str) -> None:
     """Enqueue a pre-match simulation+snapshot task."""
     from redis import Redis
