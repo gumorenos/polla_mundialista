@@ -1,5 +1,7 @@
 # Oráculo Mundial 2026
 
+![CI](https://github.com/gumorenos/polla_mundialista/actions/workflows/ci.yml/badge.svg)
+
 Predictor estadístico del Mundial FIFA 2026. Combina **5 modelos** comparables, simulación Monte Carlo (30 000 iteraciones) y análisis LLM de lesiones para generar probabilidades de avance por selección.
 
 ## Stack
