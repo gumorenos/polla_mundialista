@@ -9,6 +9,8 @@ import type {
   NarrativeResponse,
   NewsResponse,
   NewsSummaryResponse,
+  OddsResponse,
+  OddsValue,
   ShapGlobal,
   ShapMatch,
   Snapshot,
@@ -214,6 +216,25 @@ export function useShapMatch(home: string | null, away: string | null, isNeutral
       ),
     enabled: !!home && !!away,
     staleTime: 5 * 60 * 1000,
+    retry: false,
+  })
+}
+
+export function useOdds() {
+  return useQuery<OddsResponse>({
+    queryKey: ['odds'],
+    queryFn: () => api.get<OddsResponse>('/api/odds'),
+    staleTime: 6 * 60 * 60 * 1000,
+    retry: false,
+  })
+}
+
+export function useOddsValue(model = 'ml_calibrated') {
+  return useQuery<OddsValue>({
+    queryKey: ['odds', 'value', model],
+    queryFn: () =>
+      api.get<OddsValue>(`/api/odds/value?model=${encodeURIComponent(model)}`),
+    staleTime: 6 * 60 * 60 * 1000,
     retry: false,
   })
 }

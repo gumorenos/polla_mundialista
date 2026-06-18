@@ -433,6 +433,27 @@ def _m009_ml_models_shap(conn: sqlite3.Connection) -> None:
     _add_col(conn, "ml_models", "shap_importance", "TEXT")
 
 
+def _m011_market_odds(conn: sqlite3.Connection) -> None:
+    """Market odds from The Odds API — bookmaker tournament winner prices."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS market_odds (
+            id           TEXT PRIMARY KEY,
+            team_id      TEXT NOT NULL,
+            bookmaker    TEXT NOT NULL,
+            decimal_odd  REAL NOT NULL,
+            implied_prob REAL NOT NULL,
+            fetched_at   TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (team_id) REFERENCES teams(id)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_market_odds_team "
+        "ON market_odds(team_id, bookmaker)"
+    )
+
+
 def _m010_narrative_cache(conn: sqlite3.Connection) -> None:
     """Cache table for LLM-generated team and tournament narratives."""
     conn.execute(
@@ -487,6 +508,7 @@ _MIGRATIONS = [
     _m008_app_config,
     _m009_ml_models_shap,
     _m010_narrative_cache,
+    _m011_market_odds,
 ]
 
 

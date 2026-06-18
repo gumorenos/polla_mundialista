@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
-import { useRunSimulation, useSimulations, useSimulationComparison, useSimulationDiff, useShapGlobal, useShapMatch, useTeamNarrative } from '../api/hooks'
-import type { TeamResult, SimulationComparisonTeam, SimulationDiffTeam, ShapFactor } from '../types'
+import { useRunSimulation, useSimulations, useSimulationComparison, useSimulationDiff, useShapGlobal, useShapMatch, useTeamNarrative, useOddsValue } from '../api/hooks'
+import type { TeamResult, SimulationComparisonTeam, SimulationDiffTeam, ShapFactor, OddsValueTeam } from '../types'
 
 const MODELS = ['baseline', 'elo', 'poisson', 'poisson_context', 'ml_calibrated']
 
@@ -492,14 +492,73 @@ function TeamDrawer({
   )
 }
 
+// ---------------------------------------------------------------------------
+// Odds vs. Mercado
+// ---------------------------------------------------------------------------
+
+function signalBadge(signal: OddsValueTeam['signal']) {
+  if (signal === 'value') return <span className="rounded-full px-2 py-0.5 text-xs font-semibold bg-green-900/60 text-green-300">💎 Valor</span>
+  if (signal === 'overpriced') return <span className="rounded-full px-2 py-0.5 text-xs font-semibold bg-red-900/60 text-red-300">⚠ Sobrecomprado</span>
+  return <span className="rounded-full px-2 py-0.5 text-xs bg-gray-800 text-gray-500">=</span>
+}
+
+function OddsValueTable({ teams, updatedAt }: { teams: OddsValueTeam[]; updatedAt: string | null }) {
+  const sorted = [...teams].sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
+  return (
+    <div className="space-y-3">
+      {updatedAt && (
+        <p className="text-xs text-gray-500">
+          Odds actualizadas: {new Date(updatedAt).toLocaleString()}
+        </p>
+      )}
+      <div className="overflow-x-auto rounded-lg border border-gray-800">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-900">
+            <tr>
+              {['Equipo', 'Oráculo', 'Mercado', 'Diferencia', 'Mejor odd', 'Casa', 'Señal'].map((h) => (
+                <th key={h} className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-400">
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((t) => {
+              const pos = t.value > 0
+              const neg = t.value < 0
+              return (
+                <tr key={t.team_id} className="border-t border-gray-800 hover:bg-gray-900/50">
+                  <td className="px-3 py-2 font-medium text-white whitespace-nowrap">{t.team_name}</td>
+                  <td className="px-3 py-2 font-mono text-blue-300">{fmt(t.oraculo_prob)}</td>
+                  <td className="px-3 py-2 font-mono text-gray-400">{fmt(t.market_prob)}</td>
+                  <td className={`px-3 py-2 font-mono font-semibold ${pos ? 'text-green-400' : neg ? 'text-red-400' : 'text-gray-500'}`}>
+                    {t.value >= 0 ? '+' : ''}{fmt(t.value)}
+                  </td>
+                  <td className="px-3 py-2 font-mono text-gray-300">{t.best_odd.toFixed(2)}</td>
+                  <td className="px-3 py-2 text-xs text-gray-500 whitespace-nowrap">{t.bookmaker}</td>
+                  <td className="px-3 py-2">{signalBadge(t.signal)}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-gray-600">
+        Las probabilidades del mercado son informativas. Esta aplicación no promueve ni facilita apuestas.
+      </p>
+    </div>
+  )
+}
+
 export default function Simulations() {
-  const [tab, setTab] = useState<'individual' | 'comparar'>('individual')
+  const [tab, setTab] = useState<'individual' | 'comparar' | 'mercado'>('individual')
   const [model, setModel] = useState('poisson')
   const [drawerTeam, setDrawerTeam] = useState<TeamResult | null>(null)
   const { data, isLoading, error } = useSimulations(model)
   const runSim = useRunSimulation()
   const comparison = useSimulationComparison()
   const diff = useSimulationDiff(model)
+  const oddsValue = useOddsValue(model)
 
   const modelsWithData = comparison.data
     ? comparison.data.models.filter((m) =>
@@ -546,7 +605,11 @@ export default function Simulations() {
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-gray-800">
-        {(['individual', 'comparar'] as const).map((t) => (
+        {([
+          ['individual', 'Por modelo'],
+          ['comparar',   'Comparar modelos'],
+          ['mercado',    'vs. Mercado'],
+        ] as const).map(([t, label]) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -556,7 +619,7 @@ export default function Simulations() {
                 : 'text-gray-400 hover:text-gray-200'
             }`}
           >
-            {t === 'individual' ? 'Por modelo' : 'Comparar modelos'}
+            {label}
           </button>
         ))}
       </div>
@@ -634,6 +697,27 @@ export default function Simulations() {
           runId={data.run.id}
           onClose={() => setDrawerTeam(null)}
         />
+      )}
+
+      {/* Odds vs. Market view */}
+      {tab === 'mercado' && (
+        <>
+          {oddsValue.isLoading && <p className="text-gray-400">Cargando odds…</p>}
+          {oddsValue.error && (
+            <div className="rounded-lg border border-yellow-800/40 bg-yellow-950/20 px-4 py-3 text-sm text-yellow-400">
+              Sin datos de odds — configura <code className="text-yellow-300">ODDS_API_KEY</code> para activar la comparación con el mercado.
+            </div>
+          )}
+          {oddsValue.data && oddsValue.data.teams.length === 0 && (
+            <p className="text-yellow-400 text-sm">
+              No hay datos de odds disponibles aún. Configura{' '}
+              <code>ODDS_API_KEY</code> y espera la próxima actualización automática (cada 6h).
+            </p>
+          )}
+          {oddsValue.data && oddsValue.data.teams.length > 0 && (
+            <OddsValueTable teams={oddsValue.data.teams} updatedAt={oddsValue.data.updated_at} />
+          )}
+        </>
       )}
 
       {/* Comparison view */}

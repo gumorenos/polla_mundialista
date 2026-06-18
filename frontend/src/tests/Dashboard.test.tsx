@@ -27,6 +27,7 @@ vi.mock('../api/hooks', () => ({
   useTriggerDailyUpdate: () => ({ mutate: vi.fn(), isPending: false }),
   useAuthStatus: () => ({ data: { authenticated: true }, isLoading: false, error: null }),
   useTournamentNarrative: () => ({ data: null, isLoading: false, error: null }),
+  useOddsValue: () => ({ data: null, isLoading: false, error: null }),
 }))
 
 describe('Dashboard', () => {

@@ -381,13 +381,13 @@ class TestSchedulerLifecycle:
         s = get_scheduler()
         assert s.running
         job_ids = {j.id for j in s.get_jobs()}
-        assert {"full_refresh", "news_update", "check_and_snapshot", "reconcile_jobs"} == job_ids
+        assert {"full_refresh", "news_update", "check_and_snapshot", "reconcile_jobs", "fetch_odds"} == job_ids
 
     def test_start_is_idempotent(self):
         from app.scheduler.scheduler import get_scheduler, start_scheduler
         start_scheduler()
         start_scheduler()
-        assert len(get_scheduler().get_jobs()) == 4
+        assert len(get_scheduler().get_jobs()) == 5
 
     def test_stop_shuts_down_scheduler(self):
         from app.scheduler.scheduler import get_scheduler, start_scheduler, stop_scheduler

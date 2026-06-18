@@ -126,6 +126,18 @@ def check_and_snapshot() -> None:
         logger.exception("check_and_snapshot failed")
 
 
+def fetch_odds_job() -> None:
+    """Fetch market odds from The Odds API (runs directly, no RQ queue)."""
+    from app.services.ingestion.odds_api import fetch_and_store_odds
+
+    try:
+        result = fetch_and_store_odds()
+        if not result.get("skipped"):
+            logger.info("fetch_odds_job: %s", result)
+    except Exception:
+        logger.exception("fetch_odds_job failed")
+
+
 def reconcile_jobs() -> None:
     """Reconcile abandoned RQ jobs with DB records. Called every 5 min by scheduler."""
     from app.jobs.reconciler import reconcile_rq_jobs

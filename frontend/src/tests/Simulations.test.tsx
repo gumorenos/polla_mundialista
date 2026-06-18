@@ -23,6 +23,7 @@ vi.mock('../api/hooks', () => ({
   useShapGlobal: () => ({ data: null, isLoading: false, error: null }),
   useShapMatch: () => ({ data: null, isLoading: false, error: null }),
   useTeamNarrative: () => ({ data: null, isLoading: false, error: null }),
+  useOddsValue: () => ({ data: null, isLoading: false, error: null }),
 }))
 
 describe('Simulations', () => {

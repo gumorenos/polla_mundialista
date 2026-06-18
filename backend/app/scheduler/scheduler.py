@@ -26,6 +26,7 @@ def start_scheduler() -> None:
         check_and_snapshot,
         enqueue_full_refresh,
         enqueue_news_update,
+        fetch_odds_job,
         reconcile_jobs,
     )
 
@@ -45,6 +46,13 @@ def start_scheduler() -> None:
         enqueue_news_update,
         CronTrigger.from_crontab(settings.SCHEDULER_NEWS_CRON),
         id="news_update",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+    s.add_job(
+        fetch_odds_job,
+        CronTrigger.from_crontab("0 */6 * * *"),
+        id="fetch_odds",
         replace_existing=True,
         misfire_grace_time=3600,
     )

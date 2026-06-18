@@ -228,6 +228,37 @@ export interface ShapFactor {
   description: string
 }
 
+export interface MarketOdd {
+  team_id: string
+  team_name: string
+  bookmaker: string
+  decimal_odd: number
+  implied_prob: number
+  fetched_at: string | null
+}
+
+export interface OddsResponse {
+  updated_at: string | null
+  teams: MarketOdd[]
+}
+
+export interface OddsValueTeam {
+  team_id: string
+  team_name: string
+  oraculo_prob: number
+  market_prob: number
+  value: number
+  best_odd: number
+  bookmaker: string
+  signal: 'value' | 'overpriced' | 'fair'
+}
+
+export interface OddsValue {
+  model: string
+  updated_at: string | null
+  teams: OddsValueTeam[]
+}
+
 export interface NarrativeResponse {
   narrative: string | null
   generated_at: string | null

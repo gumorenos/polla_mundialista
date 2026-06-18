@@ -18,6 +18,7 @@ from app.api.routes.jobs import router as jobs_router
 from app.api.routes.metrics import router as metrics_router
 from app.api.routes.news import router as news_router
 from app.api.routes.ml import router as ml_router
+from app.api.routes.odds import router as odds_router
 from app.api.routes.pipelines import router as pipelines_router
 from app.api.routes.simulations import router as simulations_router
 from app.api.routes.snapshots import router as snapshots_router
@@ -96,3 +97,4 @@ app.include_router(pipelines_router)
 app.include_router(evaluations_router)
 app.include_router(metrics_router)
 app.include_router(news_router)
+app.include_router(odds_router)

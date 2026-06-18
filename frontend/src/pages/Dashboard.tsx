@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import {
   useModelsComparison,
+  useOddsValue,
   useSimulations,
   useTournamentNarrative,
   useTriggerDailyUpdate,
   useTriggerFullRefresh,
 } from '../api/hooks'
 import { useAuth } from '../hooks/useAuth'
-import type { ModelMetrics, TeamResult } from '../types'
+import type { ModelMetrics, OddsValueTeam, TeamResult } from '../types'
 
 function MetricCard({ label, value }: { label: string; value: string | number }) {
   return (
@@ -29,6 +30,12 @@ export default function Dashboard() {
   const fullRefresh = useTriggerFullRefresh()
   const dailyUpdate = useTriggerDailyUpdate()
   const { data: authData } = useAuth()
+
+  const { data: oddsData } = useOddsValue()
+  const top3Value: OddsValueTeam[] = [...(oddsData?.teams ?? [])]
+    .filter((t) => t.signal !== 'fair')
+    .sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
+    .slice(0, 3)
 
   const [showAnalysis, setShowAnalysis] = useState(false)
   const runId = sim?.run.id ?? null
@@ -129,6 +136,42 @@ export default function Dashboard() {
           </table></div>
         )}
       </div>
+
+      {/* Top value vs. market */}
+      {top3Value.length > 0 && (
+        <div>
+          <h3 className="mb-3 text-sm font-semibold text-gray-300 uppercase tracking-wider">
+            Mayor diferencia vs. mercado
+          </h3>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            {top3Value.map((t) => {
+              const isValue = t.signal === 'value'
+              return (
+                <div
+                  key={t.team_id}
+                  className={`rounded-lg border px-4 py-3 ${
+                    isValue
+                      ? 'border-green-800/50 bg-green-950/30'
+                      : 'border-red-800/50 bg-red-950/30'
+                  }`}
+                >
+                  <p className="text-sm font-semibold text-white">{t.team_name}</p>
+                  <p className={`text-xs font-mono font-bold mt-0.5 ${isValue ? 'text-green-400' : 'text-red-400'}`}>
+                    {t.value >= 0 ? '+' : ''}{(t.value * 100).toFixed(1)}pp
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Oráculo {(t.oraculo_prob * 100).toFixed(1)}% · Mercado {(t.market_prob * 100).toFixed(1)}%
+                  </p>
+                  <p className="text-xs text-gray-600">{t.bookmaker} · {t.best_odd.toFixed(2)}</p>
+                </div>
+              )
+            })}
+          </div>
+          <p className="mt-2 text-xs text-gray-600">
+            Las probabilidades del mercado son informativas. Esta aplicación no promueve ni facilita apuestas.
+          </p>
+        </div>
+      )}
 
       {/* Tournament analysis (LLM) */}
       <div className="rounded-lg border border-gray-800 bg-gray-900 p-4 space-y-3">

@@ -110,6 +110,13 @@ else
   log_ok "FOOTBALL_DATA_API_KEY configurada (backup football-data.org activo)"
 fi
 
+ODDS_API_KEY="$(get_env ODDS_API_KEY)"
+if is_placeholder "$ODDS_API_KEY"; then
+  log_warn "ODDS_API_KEY no configurada — comparación con odds de mercado deshabilitada (opcional, https://the-odds-api.com)"
+else
+  log_ok "ODDS_API_KEY configurada (odds benchmark activo)"
+fi
+
 echo ""
 echo "--- Infraestructura ---"
 
