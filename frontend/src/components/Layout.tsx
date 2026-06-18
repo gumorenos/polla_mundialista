@@ -3,6 +3,7 @@ import { NavLink, Outlet } from 'react-router-dom'
 import { useTheme, type Theme } from '../hooks/useTheme'
 import { api } from '../api/client'
 import { usePasswordChanged } from '../api/hooks'
+import ChatWidget from './ChatWidget'
 
 const navItems = [
   { to: '/', label: 'Dashboard' },
@@ -184,6 +185,8 @@ export default function Layout() {
       <main className="flex-1 overflow-auto pt-14 md:pt-0">
         <Outlet />
       </main>
+
+      <ChatWidget />
     </div>
   )
 }
