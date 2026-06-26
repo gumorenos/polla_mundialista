@@ -148,6 +148,128 @@ def get_comparison() -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# GET /api/simulations/history/{team_id}
+# ---------------------------------------------------------------------------
+
+@router.get("/history/{team_id}")
+def get_team_history(
+    team_id: str,
+    model: str = Query(default="poisson"),
+    limit: int = Query(default=20, ge=2, le=100),
+) -> dict[str, Any]:
+    """Return simulation history for one team — champion/top4/top16 probability per run.
+
+    Returns empty history list (not an error) when fewer than 2 data points exist.
+    """
+    with db_transaction() as conn:
+        team_row = conn.execute(
+            "SELECT id, name FROM teams WHERE id = ?", (team_id,)
+        ).fetchone()
+        if not team_row:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Team '{team_id}' not found",
+            )
+
+        rows = conn.execute(
+            """
+            SELECT
+                sr.id          AS run_id,
+                sr.finished_at AS created_at,
+                str.win_tournament   AS champion_prob,
+                str.reach_semi_final AS top4_prob,
+                str.reach_round_of_16 AS top16_prob
+            FROM simulation_runs sr
+            JOIN simulation_team_results str
+                ON str.simulation_run_id = sr.id
+            WHERE str.team_id  = ?
+              AND sr.model_name = ?
+              AND sr.status     = 'completed'
+              AND sr.finished_at IS NOT NULL
+            ORDER BY sr.finished_at ASC
+            LIMIT ?
+            """,
+            (team_id, model, limit),
+        ).fetchall()
+
+    history = [
+        {
+            "run_id":        r["run_id"],
+            "created_at":    r["created_at"],
+            "champion_prob": round(float(r["champion_prob"]), 4),
+            "top4_prob":     round(float(r["top4_prob"]),     4),
+            "top16_prob":    round(float(r["top16_prob"]),    4),
+        }
+        for r in rows
+    ]
+
+    return {
+        "team_id":   team_id,
+        "team_name": team_row["name"],
+        "model":     model,
+        "history":   history if len(history) >= 2 else [],
+    }
+
+
+# ---------------------------------------------------------------------------
+# GET /api/simulations/favorite-history
+# ---------------------------------------------------------------------------
+
+@router.get("/favorite-history")
+def get_favorite_history(
+    model: str = Query(default="poisson"),
+    limit: int = Query(default=20, ge=2, le=100),
+) -> dict[str, Any]:
+    """Return the evolution of the #1 team's champion probability over time for a model.
+
+    Each entry shows which team was the leader at that simulation run
+    and their champion probability. Useful for detecting if the favourite changed.
+    """
+    with db_transaction() as conn:
+        rows = conn.execute(
+            """
+            WITH ranked AS (
+                SELECT
+                    sr.id          AS run_id,
+                    sr.finished_at AS created_at,
+                    str.team_id,
+                    t.name         AS team_name,
+                    str.win_tournament AS champion_prob,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY sr.id
+                        ORDER BY str.win_tournament DESC
+                    ) AS rn
+                FROM simulation_runs sr
+                JOIN simulation_team_results str ON str.simulation_run_id = sr.id
+                JOIN teams t ON t.id = str.team_id
+                WHERE sr.model_name = ?
+                  AND sr.status     = 'completed'
+                  AND sr.finished_at IS NOT NULL
+            )
+            SELECT run_id, created_at, team_id, team_name, champion_prob
+            FROM ranked
+            WHERE rn = 1
+            ORDER BY created_at ASC
+            LIMIT ?
+            """,
+            (model, limit),
+        ).fetchall()
+
+    history = [
+        {
+            "run_id":        r["run_id"],
+            "created_at":    r["created_at"],
+            "team_id":       r["team_id"],
+            "team_name":     r["team_name"],
+            "champion_prob": round(float(r["champion_prob"]), 4),
+        }
+        for r in rows
+    ]
+
+    return {"model": model, "history": history if len(history) >= 2 else []}
+
+
+# ---------------------------------------------------------------------------
 # GET /api/simulations/latest
 # ---------------------------------------------------------------------------
 

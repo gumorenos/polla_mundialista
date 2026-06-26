@@ -17,10 +17,12 @@ import type {
   ShapMatch,
   Snapshot,
   SimulationComparison,
+  FavoriteHistoryResponse,
   SimulationDiff,
   SimulationRequest,
   SimulationSummary,
   SuspensionsResponse,
+  TeamHistoryResponse,
 } from '../../types'
 
 // ---------------------------------------------------------------------------
@@ -206,6 +208,31 @@ export function useSuspensions() {
     queryKey: ['news', 'suspensions'],
     queryFn: () => api.get<SuspensionsResponse>('/api/news/suspensions'),
     staleTime: 5 * 60 * 1000,
+  })
+}
+
+export function useTeamHistory(teamId: string | null, model: string) {
+  return useQuery<TeamHistoryResponse>({
+    queryKey: ['simulations', 'history', teamId, model],
+    queryFn: () =>
+      api.get<TeamHistoryResponse>(
+        `/api/simulations/history/${encodeURIComponent(teamId!)}?model=${encodeURIComponent(model)}&limit=20`,
+      ),
+    enabled: !!teamId,
+    staleTime: 2 * 60 * 1000,
+    retry: false,
+  })
+}
+
+export function useFavoriteHistory(model: string) {
+  return useQuery<FavoriteHistoryResponse>({
+    queryKey: ['simulations', 'favorite-history', model],
+    queryFn: () =>
+      api.get<FavoriteHistoryResponse>(
+        `/api/simulations/favorite-history?model=${encodeURIComponent(model)}&limit=20`,
+      ),
+    staleTime: 2 * 60 * 1000,
+    retry: false,
   })
 }
 

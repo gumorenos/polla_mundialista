@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from 'recharts'
 import { useRunSimulation, useSimulations, useSimulationComparison, useSimulationDiff, useShapGlobal, useShapMatch, useTeamNarrative, useOddsValue, useEloHistory } from '../api/hooks'
 import type { TeamResult, SimulationComparisonTeam, SimulationDiffTeam, ShapFactor, OddsValueTeam } from '../types'
+import { TeamEvolutionChart } from '../components/TeamEvolutionChart'
 
 const MODELS = ['baseline', 'elo', 'poisson', 'poisson_context', 'ml_calibrated', 'consensus']
 
@@ -351,11 +352,13 @@ function TeamDrawer({
   team,
   allTeams,
   runId,
+  model,
   onClose,
 }: {
   team: TeamResult
   allTeams: TeamResult[]
   runId: string
+  model: string
   onClose: () => void
 }) {
   const [opponent, setOpponent] = useState<string>('')
@@ -418,6 +421,9 @@ function TeamDrawer({
               ))}
             </div>
           </div>
+
+          {/* Evolution chart */}
+          <TeamEvolutionChart teamId={team.team_id} teamName={team.team_name} model={model} />
 
           {/* LLM narrative */}
           <div>
@@ -770,6 +776,7 @@ export default function Simulations() {
           team={drawerTeam}
           allTeams={data.team_results}
           runId={data.run.id}
+          model={model}
           onClose={() => setDrawerTeam(null)}
         />
       )}

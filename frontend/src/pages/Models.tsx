@@ -7,8 +7,14 @@ import {
   type SortingState,
 } from '@tanstack/react-table'
 import { useState } from 'react'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
-import { useConsensusWeights, useModelsComparison, useShapGlobal } from '../api/hooks'
+import {
+  BarChart, Bar,
+  LineChart, Line,
+  XAxis, YAxis,
+  Tooltip, Legend,
+  ResponsiveContainer, Cell,
+} from 'recharts'
+import { useConsensusWeights, useFavoriteHistory, useModelsComparison, useShapGlobal } from '../api/hooks'
 import type { ModelMetrics } from '../types'
 
 const col = createColumnHelper<ModelMetrics>()
@@ -201,6 +207,130 @@ function ConsensusWeightsChart() {
 }
 
 // ---------------------------------------------------------------------------
+// Favorite evolution chart (Parte 3)
+// ---------------------------------------------------------------------------
+
+const FAVORITE_MODELS = ['poisson', 'poisson_context', 'ml_calibrated', 'consensus']
+
+const FAVORITE_MODEL_COLORS: Record<string, string> = {
+  poisson:         '#3b82f6',
+  poisson_context: '#8b5cf6',
+  ml_calibrated:   '#f59e0b',
+  consensus:       '#6366f1',
+}
+
+function fmtDate(iso: string): string {
+  const d = new Date(iso)
+  return d.toLocaleDateString('es-ES', { month: 'short', day: 'numeric' })
+}
+
+function FavoriteModelChart({ model }: { model: string }) {
+  const { data, isLoading } = useFavoriteHistory(model)
+
+  if (isLoading) {
+    return (
+      <div className="rounded-lg border border-gray-800 px-4 py-4 animate-pulse text-xs text-gray-600 text-center">
+        Cargando…
+      </div>
+    )
+  }
+
+  if (!data || data.history.length === 0) {
+    return (
+      <div className="rounded-lg border border-gray-800 px-4 py-3 text-xs text-gray-600 text-center">
+        Necesitas ≥2 simulaciones para ver la evolución.
+      </div>
+    )
+  }
+
+  const chartData = data.history.map((p) => ({
+    date: fmtDate(p.created_at),
+    team: p.team_name,
+    prob: parseFloat((p.champion_prob * 100).toFixed(2)),
+  }))
+
+  // Detect leader changes
+  const leaderChanged = new Set(data.history.map((p) => p.team_id)).size > 1
+  const currentLeader = data.history[data.history.length - 1]
+  const color = FAVORITE_MODEL_COLORS[model] ?? '#3b82f6'
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold" style={{ color }}>
+          {MODEL_DISPLAY[model] ?? model}
+        </span>
+        <span className="text-xs text-gray-500">
+          Favorito actual: <span className="text-gray-300 font-medium">{currentLeader.team_name}</span>
+          {leaderChanged && (
+            <span className="ml-2 rounded px-1.5 py-0.5 bg-yellow-900/40 text-yellow-400 text-xs">
+              ⚡ cambió
+            </span>
+          )}
+        </span>
+      </div>
+      <div className="rounded-lg border border-gray-800 overflow-hidden">
+        <ResponsiveContainer width="100%" height={150}>
+          <LineChart data={chartData} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
+            <XAxis
+              dataKey="date"
+              tick={{ fill: '#6b7280', fontSize: 9 }}
+              axisLine={false}
+              tickLine={false}
+            />
+            <YAxis
+              tickFormatter={(v: number) => v.toFixed(0) + '%'}
+              tick={{ fill: '#6b7280', fontSize: 9 }}
+              axisLine={false}
+              tickLine={false}
+              width={34}
+              domain={['auto', 'auto']}
+            />
+            <Tooltip
+              contentStyle={{ background: '#111827', border: '1px solid #374151', borderRadius: 6, fontSize: 10 }}
+              formatter={(v: number, _: string, props: { payload?: { team: string } }) => [
+                `${v.toFixed(1)}% (${props.payload?.team ?? ''})`,
+                '% campeón',
+              ]}
+              labelFormatter={(l) => l}
+            />
+            <Line
+              type="monotone"
+              dataKey="prob"
+              stroke={color}
+              strokeWidth={2}
+              dot={{ r: 3, fill: color }}
+              activeDot={{ r: 5 }}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  )
+}
+
+function FavoriteEvolutionSection() {
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-sm font-semibold uppercase tracking-wider text-gray-400">
+          Cómo ha cambiado el favorito
+        </h3>
+        <p className="mt-1 text-xs text-gray-500">
+          Probabilidad del equipo líder en cada simulación completada, por modelo.
+          Un ⚡ indica que el favorito cambió entre simulaciones.
+        </p>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {FAVORITE_MODELS.map((m) => (
+          <FavoriteModelChart key={m} model={m} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 
@@ -283,6 +413,9 @@ export default function Models() {
 
       {/* Consensus ensemble weights */}
       <ConsensusWeightsChart />
+
+      {/* Favorite evolution over time */}
+      <FavoriteEvolutionSection />
     </div>
   )
 }

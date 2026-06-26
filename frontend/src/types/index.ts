@@ -294,6 +294,34 @@ export interface ConsensusWeights {
   note: string
 }
 
+export interface TeamHistoryPoint {
+  run_id: string
+  created_at: string
+  champion_prob: number
+  top4_prob: number
+  top16_prob: number
+}
+
+export interface TeamHistoryResponse {
+  team_id: string
+  team_name: string
+  model: string
+  history: TeamHistoryPoint[]
+}
+
+export interface FavoriteHistoryPoint {
+  run_id: string
+  created_at: string
+  team_id: string
+  team_name: string
+  champion_prob: number
+}
+
+export interface FavoriteHistoryResponse {
+  model: string
+  history: FavoriteHistoryPoint[]
+}
+
 export interface SuspendedPlayerDetail {
   player_name: string
   team_id: string
