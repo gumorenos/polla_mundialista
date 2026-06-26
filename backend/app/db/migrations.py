@@ -520,6 +520,84 @@ def _m008_app_config(conn: sqlite3.Connection) -> None:
 # Public entry point
 # ---------------------------------------------------------------------------
 
+def _m013_statsbomb_tables(conn: sqlite3.Connection) -> None:
+    """StatsBomb Open Data tables for xG, shot, and player stats."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sb_matches (
+            match_id         INTEGER PRIMARY KEY,
+            competition_id   INTEGER NOT NULL,
+            season_id        INTEGER NOT NULL,
+            competition_name TEXT NOT NULL,
+            season_name      TEXT NOT NULL,
+            match_date       TEXT NOT NULL,
+            home_team_id     TEXT,
+            away_team_id     TEXT,
+            home_score       INTEGER,
+            away_score       INTEGER,
+            home_team_sb     TEXT,
+            away_team_sb     TEXT,
+            FOREIGN KEY (home_team_id) REFERENCES teams(id),
+            FOREIGN KEY (away_team_id) REFERENCES teams(id)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sb_match_stats (
+            id                 TEXT PRIMARY KEY,
+            match_id           INTEGER NOT NULL,
+            team_id            TEXT NOT NULL,
+            is_home            INTEGER NOT NULL,
+            goals              INTEGER DEFAULT 0,
+            xg                 REAL DEFAULT 0.0,
+            shots              INTEGER DEFAULT 0,
+            shots_on_target    INTEGER DEFAULT 0,
+            xg_conceded        REAL DEFAULT 0.0,
+            shots_conceded     INTEGER DEFAULT 0,
+            possession         REAL DEFAULT 0.0,
+            passes_completed   INTEGER DEFAULT 0,
+            passes_total       INTEGER DEFAULT 0,
+            pass_accuracy      REAL DEFAULT 0.0,
+            pressures          INTEGER DEFAULT 0,
+            duels_won          INTEGER DEFAULT 0,
+            duels_total        INTEGER DEFAULT 0,
+            FOREIGN KEY (match_id) REFERENCES sb_matches(match_id),
+            FOREIGN KEY (team_id)  REFERENCES teams(id)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sb_player_stats (
+            id             TEXT PRIMARY KEY,
+            match_id       INTEGER NOT NULL,
+            team_id        TEXT NOT NULL,
+            player_name    TEXT NOT NULL,
+            position       TEXT,
+            minutes_played INTEGER DEFAULT 0,
+            goals          INTEGER DEFAULT 0,
+            xg             REAL DEFAULT 0.0,
+            shots          INTEGER DEFAULT 0,
+            key_passes     INTEGER DEFAULT 0,
+            FOREIGN KEY (match_id) REFERENCES sb_matches(match_id)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sb_matches_date "
+        "ON sb_matches(match_date)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sb_stats_match_team "
+        "ON sb_match_stats(match_id, team_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sb_player_match "
+        "ON sb_player_stats(match_id, team_id)"
+    )
+
+
 _MIGRATIONS = [
     _m001_create_all_tables,
     _m002_jobs_extend_schema,
@@ -533,6 +611,7 @@ _MIGRATIONS = [
     _m010_narrative_cache,
     _m011_market_odds,
     _m012_elo_history,
+    _m013_statsbomb_tables,
 ]
 
 

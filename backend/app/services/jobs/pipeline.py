@@ -147,6 +147,30 @@ def run_full_refresh(
     _progress(0.05)
 
     # ------------------------------------------------------------------
+    # Step 1b — StatsBomb Open Data ingestion (fault-tolerant, optional)
+    # ------------------------------------------------------------------
+    from pathlib import Path as _Path
+    if _Path(settings.STATSBOMB_DATA_PATH).exists():
+        try:
+            logger.info("[Pipeline] Paso 1b/10: Cargando datos StatsBomb")
+            from app.services.ingestion.statsbomb_loader import load_all_wc_matches
+            sb_count = load_all_wc_matches(db_conn, settings.STATSBOMB_DATA_PATH)
+            summary["statsbomb"] = {"matches": sb_count}
+            logger.info("[Pipeline] Paso 1b/10: %d partidos StatsBomb cargados", sb_count)
+        except InterruptedError:
+            raise
+        except Exception as exc:
+            logger.warning("[Pipeline] Paso 1b/10: StatsBomb falló (no fatal): %s", exc)
+            summary["statsbomb"] = {"status": "failed", "error": str(exc)}
+    else:
+        logger.warning(
+            "[Pipeline] Paso 1b/10: STATSBOMB_DATA_PATH no encontrado, saltando (%s)",
+            settings.STATSBOMB_DATA_PATH,
+        )
+        summary["statsbomb"] = {"status": "skipped"}
+    _progress(0.08)
+
+    # ------------------------------------------------------------------
     # Step 2 — ELO scraping (fault-tolerant)
     # ------------------------------------------------------------------
     try:

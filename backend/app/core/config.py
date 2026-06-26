@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     SQLITE_PATH: str = "data/sqlite/oraculo.db"
     DATA_RAW_PATH: str = "data/raw"
     DATA_EXPORTS_PATH: str = "data/exports"
+    STATSBOMB_DATA_PATH: str = "/home/ubuntu/proyectos/statsbomb-data/data"
 
     # ------------------------------------------------------------------
     # Logging
