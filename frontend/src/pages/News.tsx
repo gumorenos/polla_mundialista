@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useNews, useNewsSummary, useTriggerNews, useJobStatus } from '../api/hooks'
-import type { NewsClaim, NewsTeamSummary } from '../types'
+import { useNews, useNewsSummary, useSuspensions, useTriggerNews, useJobStatus } from '../api/hooks'
+import type { NewsClaim, NewsTeamSummary, SuspensionTeamSummary } from '../types'
 
 const STATUS_LABELS: Record<string, string> = {
   injured: 'Lesión',
@@ -105,6 +105,39 @@ function TeamSummaryCard({ team }: { team: NewsTeamSummary }) {
 }
 
 // ---------------------------------------------------------------------------
+// Suspension card
+// ---------------------------------------------------------------------------
+
+function SuspensionCard({ team }: { team: SuspensionTeamSummary }) {
+  const attackImpact = team.attack_factor != null ? ((1 - team.attack_factor) * 100).toFixed(0) : null
+  const defenseImpact = team.defense_factor != null ? ((team.defense_factor - 1) * 100).toFixed(0) : null
+
+  return (
+    <div className="rounded-lg border border-yellow-900/50 bg-yellow-950/20 p-4 space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="font-semibold text-white text-sm">{team.team_name}</span>
+        <span className="text-xs text-yellow-400 font-medium">
+          {team.suspended_count} suspendido{team.suspended_count !== 1 ? 's' : ''}
+        </span>
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {team.players_suspended.map((p) => (
+          <span key={p} className="inline-flex items-center gap-1 rounded bg-yellow-900/40 px-1.5 py-0.5 text-xs text-yellow-300">
+            🟨 {p}
+          </span>
+        ))}
+      </div>
+      {(attackImpact || defenseImpact) && (
+        <div className="flex gap-3 text-xs text-gray-400">
+          {attackImpact && <span>Ataque: <span className="text-yellow-400">−{attackImpact}%</span></span>}
+          {defenseImpact && <span>Defensa: <span className="text-yellow-400">+{defenseImpact}%</span></span>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Table row
 // ---------------------------------------------------------------------------
 
@@ -175,6 +208,7 @@ export default function News() {
   const triggerNews = useTriggerNews()
   const jobStatus = useJobStatus(trackedJobId)
   const summary = useNewsSummary()
+  const suspensions = useSuspensions()
   const { data, isLoading, error } = useNews({
     classification: classificationFilter || undefined,
     team_id: teamFilter || undefined,
@@ -266,6 +300,20 @@ export default function News() {
       {summary.data && summary.data.teams.length === 0 && (
         <div className="rounded-lg border border-gray-800 px-4 py-3 text-sm text-gray-400">
           Sin lesiones confirmadas en este momento.
+        </div>
+      )}
+
+      {/* Suspended players */}
+      {suspensions.data && suspensions.data.teams.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-gray-400 mb-3">
+            Jugadores suspendidos — WC 2026 ({suspensions.data.teams.length} equipos)
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+            {suspensions.data.teams.map((team) => (
+              <SuspensionCard key={team.team_id} team={team} />
+            ))}
+          </div>
         </div>
       )}
 

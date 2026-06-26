@@ -149,6 +149,55 @@ def news_summary() -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# GET /api/news/suspensions
+# ---------------------------------------------------------------------------
+
+@router.get("/suspensions")
+def list_suspensions() -> dict[str, Any]:
+    """Return per-team suspension summary for WC2026.
+
+    Reads player_bookings and applies FIFA rules (2 yellows or red card = ban).
+    Returns teams that have at least one suspended player.
+    """
+    from app.services.suspensions.detector import get_suspended_players
+
+    with db_transaction() as conn:
+        try:
+            team_rows = conn.execute(
+                "SELECT t.id, t.name FROM teams t"
+            ).fetchall()
+        except Exception as exc:
+            logger.warning("suspensions: cannot read teams: %s", exc)
+            return {"teams": []}
+
+        teams_out = []
+        for t in team_rows:
+            team_id = t["id"]
+            suspended = get_suspended_players(team_id, conn)
+            if not suspended:
+                continue
+
+            n = len(suspended)
+            from app.core.config import settings as _s
+            attack_factor = round((1.0 - _s.SUSPENSION_ATTACK_PENALTY) ** n, 4)
+            defense_factor = round((1.0 + _s.SUSPENSION_DEFENSE_PENALTY) ** n, 4)
+
+            teams_out.append(
+                {
+                    "team_id": team_id,
+                    "team_name": t["name"],
+                    "suspended_count": n,
+                    "players_suspended": [p["player_name"] for p in suspended],
+                    "details": suspended,
+                    "attack_factor": attack_factor,
+                    "defense_factor": defense_factor,
+                }
+            )
+
+    return {"teams": teams_out}
+
+
+# ---------------------------------------------------------------------------
 # POST /api/news/trigger
 # ---------------------------------------------------------------------------
 

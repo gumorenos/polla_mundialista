@@ -55,6 +55,60 @@ def _get_config(conn: sqlite3.Connection, key: str) -> float:
 # Public API
 # ---------------------------------------------------------------------------
 
+def run_suspension_analysis(db_conn: sqlite3.Connection) -> dict[str, Any]:
+    """Detect suspended players and apply prediction penalties.
+
+    Reads player_bookings for WC2026, identifies suspensions per FIFA rules,
+    and inserts team_context_adjustments with adjustment_type='suspension'.
+
+    Returns:
+        {"affected_teams": list[str], "suspended_players": list[dict]}
+    """
+    from app.services.suspensions.detector import get_suspended_players
+
+    try:
+        teams = db_conn.execute("SELECT id FROM teams").fetchall()
+    except Exception as exc:
+        logger.warning("Suspension analysis: cannot read teams: %s", exc)
+        return {"affected_teams": [], "suspended_players": []}
+
+    affected_teams: list[str] = []
+    all_suspended: list[dict] = []
+
+    for row in teams:
+        team_id = row["id"] if hasattr(row, "__getitem__") else row[0]
+        suspended = get_suspended_players(team_id, db_conn)
+        if not suspended:
+            continue
+
+        n = len(suspended)
+        attack_factor = (1.0 - settings.SUSPENSION_ATTACK_PENALTY) ** n
+        defense_factor = (1.0 + settings.SUSPENSION_DEFENSE_PENALTY) ** n
+        player_names = [p["player_name"] for p in suspended]
+
+        AvailabilityRepository(db_conn).insert_context_adjustment(
+            team_id=team_id,
+            attack_factor=attack_factor,
+            defense_factor=defense_factor,
+            notes=f"Suspended: {', '.join(player_names)}",
+            adjustment_type="suspension",
+        )
+        db_conn.commit()
+        affected_teams.append(team_id)
+        all_suspended.extend(suspended)
+
+        logger.info(
+            "Suspension penalty applied: team=%s n=%d attack_factor=%.3f defense_factor=%.3f",
+            team_id, n, attack_factor, defense_factor,
+        )
+
+    logger.info(
+        "Suspension analysis complete: %d teams affected, %d suspended players",
+        len(affected_teams), len(all_suspended),
+    )
+    return {"affected_teams": affected_teams, "suspended_players": all_suspended}
+
+
 def run_news_analysis(db_conn: sqlite3.Connection) -> dict[str, Any]:
     """Run the full injury detection pipeline.
 

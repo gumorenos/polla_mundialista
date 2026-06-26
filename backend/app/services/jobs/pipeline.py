@@ -339,6 +339,21 @@ def run_daily_update(
         summary["api_football"] = {"status": "failed", "error": str(exc)}
     _progress(0.15)
 
+    # Step 1c — WC2026 bookings / suspensions (fault-tolerant)
+    try:
+        from app.services.ingestion.football_data_org import fetch_bookings_wc2026
+        from app.services.news.availability import run_suspension_analysis
+        booking_count = fetch_bookings_wc2026(db_conn)
+        suspension_result = run_suspension_analysis(db_conn)
+        summary["suspensions"] = {
+            "bookings_fetched": booking_count,
+            "teams_affected": len(suspension_result.get("affected_teams", [])),
+        }
+    except Exception as exc:
+        logger.warning("Suspension ingestion failed (non-fatal): %s", exc)
+        summary["suspensions"] = {"status": "failed", "error": str(exc)}
+    _progress(0.18)
+
     # Step 1b — Incremental ELO update (fault-tolerant)
     try:
         from app.services.elo.calculator import update_elos_for_new_matches

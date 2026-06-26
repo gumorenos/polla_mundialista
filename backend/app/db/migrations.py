@@ -598,6 +598,32 @@ def _m013_statsbomb_tables(conn: sqlite3.Connection) -> None:
     )
 
 
+def _m014_player_bookings(conn: sqlite3.Connection) -> None:
+    """Player card bookings for WC2026 — used for suspension detection."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS player_bookings (
+            id          TEXT PRIMARY KEY,
+            player_name TEXT NOT NULL,
+            team_id     TEXT NOT NULL,
+            card_type   TEXT NOT NULL,
+            match_date  TEXT NOT NULL,
+            competition TEXT DEFAULT 'WC2026',
+            is_suspended INTEGER DEFAULT 0,
+            FOREIGN KEY (team_id) REFERENCES teams(id)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_bookings_team_player "
+        "ON player_bookings(team_id, player_name)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_bookings_competition "
+        "ON player_bookings(competition, card_type)"
+    )
+
+
 _MIGRATIONS = [
     _m001_create_all_tables,
     _m002_jobs_extend_schema,
@@ -612,6 +638,7 @@ _MIGRATIONS = [
     _m011_market_odds,
     _m012_elo_history,
     _m013_statsbomb_tables,
+    _m014_player_bookings,
 ]
 
 

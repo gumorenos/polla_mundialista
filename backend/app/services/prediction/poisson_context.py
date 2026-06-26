@@ -80,6 +80,25 @@ class PoissonContextModel(PoissonModel):
         else:
             missing.append("injury_data_away")
 
+        # --- Suspension penalties ---
+        home_susp = self._count_active_suspensions(home_team_id)
+        away_susp = self._count_active_suspensions(away_team_id)
+
+        if home_susp > 0:
+            capped = min(home_susp, _MAX_INJURY_PENALTY)
+            lam_h *= (1.0 - settings.SUSPENSION_ATTACK_PENALTY) ** capped
+            lam_a *= (1.0 + settings.SUSPENSION_DEFENSE_PENALTY) ** capped
+            used.append(f"suspension_penalty_home(n={home_susp})")
+            logger.info(
+                "PoissonContext: home team %s has %d suspended — attack penalty %.0f%%",
+                home_team_id, home_susp, settings.SUSPENSION_ATTACK_PENALTY * capped * 100,
+            )
+        if away_susp > 0:
+            capped = min(away_susp, _MAX_INJURY_PENALTY)
+            lam_a *= (1.0 - settings.SUSPENSION_ATTACK_PENALTY) ** capped
+            lam_h *= (1.0 + settings.SUSPENSION_DEFENSE_PENALTY) ** capped
+            used.append(f"suspension_penalty_away(n={away_susp})")
+
         # Clamp lambdas to a reasonable range
         lam_h = max(0.1, lam_h)
         lam_a = max(0.1, lam_a)
@@ -133,3 +152,36 @@ class PoissonContextModel(PoissonModel):
             )
             return 0
         return int(row["n"]) if row else 0
+
+    def _count_active_suspensions(self, team_id: str) -> int:
+        """Count players under FIFA WC suspension (2+ yellows or red card)."""
+        try:
+            yellow_row = self._conn.execute(
+                """
+                SELECT COUNT(*) AS n FROM (
+                    SELECT player_name
+                    FROM player_bookings
+                    WHERE team_id = ? AND competition = 'WC2026' AND card_type = 'YELLOW'
+                    GROUP BY player_name
+                    HAVING COUNT(*) >= 2
+                )
+                """,
+                (team_id,),
+            ).fetchone()
+            red_row = self._conn.execute(
+                """
+                SELECT COUNT(DISTINCT player_name) AS n
+                FROM player_bookings
+                WHERE team_id = ? AND competition = 'WC2026'
+                  AND card_type IN ('RED', 'YELLOW_RED')
+                """,
+                (team_id,),
+            ).fetchone()
+        except Exception as exc:
+            logger.warning(
+                "PoissonContext: DB error counting suspensions for %s: %s", team_id, exc
+            )
+            return 0
+        yellows = int(yellow_row["n"]) if yellow_row else 0
+        reds = int(red_row["n"]) if red_row else 0
+        return yellows + reds

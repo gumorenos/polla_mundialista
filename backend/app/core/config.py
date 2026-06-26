@@ -116,6 +116,12 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     INJURY_ATTACK_PENALTY: float = 0.15
     INJURY_DEFENSE_PENALTY: float = 0.05
+
+    # ------------------------------------------------------------------
+    # Suspensions
+    # ------------------------------------------------------------------
+    SUSPENSION_ATTACK_PENALTY: float = 0.12
+    SUSPENSION_DEFENSE_PENALTY: float = 0.08
     NEWS_MIN_SOURCES: int = 2
     NEWS_CONFIDENCE_THRESHOLD: float = 0.7
     NEWS_MAX_PER_PLAYER: int = 5

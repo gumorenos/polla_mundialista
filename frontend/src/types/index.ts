@@ -293,3 +293,24 @@ export interface ConsensusWeights {
   brier_scores: Record<string, number>
   note: string
 }
+
+export interface SuspendedPlayerDetail {
+  player_name: string
+  team_id: string
+  reason: string
+  card_type: 'YELLOW' | 'RED' | 'YELLOW_RED'
+}
+
+export interface SuspensionTeamSummary {
+  team_id: string
+  team_name: string
+  suspended_count: number
+  players_suspended: string[]
+  details: SuspendedPlayerDetail[]
+  attack_factor: number | null
+  defense_factor: number | null
+}
+
+export interface SuspensionsResponse {
+  teams: SuspensionTeamSummary[]
+}

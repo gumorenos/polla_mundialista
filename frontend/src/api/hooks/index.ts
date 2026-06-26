@@ -20,6 +20,7 @@ import type {
   SimulationDiff,
   SimulationRequest,
   SimulationSummary,
+  SuspensionsResponse,
 } from '../../types'
 
 // ---------------------------------------------------------------------------
@@ -197,6 +198,14 @@ export function useTriggerNews() {
   return useMutation<EnqueueResponse, Error, void>({
     mutationFn: () => api.post<EnqueueResponse>('/api/news/trigger', {}),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['jobs'] }),
+  })
+}
+
+export function useSuspensions() {
+  return useQuery<SuspensionsResponse>({
+    queryKey: ['news', 'suspensions'],
+    queryFn: () => api.get<SuspensionsResponse>('/api/news/suspensions'),
+    staleTime: 5 * 60 * 1000,
   })
 }
 

@@ -9,6 +9,7 @@ Used as an intermediate fallback between API-Football and CSV:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import sqlite3
 import time
@@ -259,6 +260,75 @@ def fetch_standings_wc2026() -> list[dict[str, Any]]:
     except (RetryError, Exception) as exc:
         logger.warning("football-data.org standings fetch failed: %s", exc)
         return []
+
+
+# ---------------------------------------------------------------------------
+# Bookings (tarjetas) — WC2026
+# ---------------------------------------------------------------------------
+
+def fetch_bookings_wc2026(conn: sqlite3.Connection) -> int:
+    """Fetch WC2026 player bookings from football-data.org and persist them.
+
+    Reads bookings[] from each finished match and inserts into player_bookings.
+    Returns number of new booking records inserted (OR IGNORE, so re-runs are safe).
+    Returns 0 if no API key configured or on any failure.
+    """
+    if not settings.FOOTBALL_DATA_API_KEY:
+        logger.debug("FOOTBALL_DATA_API_KEY not set — skipping fetch_bookings_wc2026")
+        return 0
+
+    try:
+        data = _get(
+            f"competitions/{_WC_CODE}/matches",
+            {"season": _WC_SEASON, "status": "FINISHED"},
+        )
+    except (RetryError, Exception) as exc:
+        logger.warning("football-data.org bookings fetch failed: %s", exc)
+        return 0
+
+    count = 0
+    for match in data.get("matches", []):
+        match_id = match.get("id", "")
+        match_date = match.get("utcDate", "")[:10]
+        bookings = match.get("bookings") or []
+
+        for booking in bookings:
+            player_name: str = (booking.get("player") or {}).get("name", "")
+            team_name: str = (booking.get("team") or {}).get("name", "")
+            card_type: str = booking.get("card", "")  # YELLOW, RED, YELLOW_RED
+
+            if not player_name or not team_name or not card_type:
+                continue
+
+            team_id = (
+                TEAM_NAME_ALIASES.get(team_name)
+                or normalize_team_id(team_name)
+                or team_name[:20]
+            )
+
+            booking_id = hashlib.md5(
+                f"{match_id}|{player_name}|{card_type}".encode()
+            ).hexdigest()[:16]
+
+            try:
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO player_bookings
+                        (id, player_name, team_id, card_type, match_date, competition)
+                    VALUES (?, ?, ?, ?, ?, 'WC2026')
+                    """,
+                    (booking_id, player_name, team_id, card_type, match_date),
+                )
+                count += 1
+            except Exception as exc:
+                logger.warning(
+                    "DB error persisting booking %s/%s: %s", player_name, card_type, exc
+                )
+
+    if count:
+        conn.commit()
+    logger.info("football-data.org bookings: %d records inserted", count)
+    return count
 
 
 # ---------------------------------------------------------------------------
