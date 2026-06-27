@@ -133,6 +133,7 @@ class Settings(BaseSettings):
     MONTECARLO_ITERATIONS: int = 30_000
     MONTECARLO_SEED: int = 42
     SIMULATION_BATCH_SIZE: int = 1_000
+    MONTE_CARLO_TIMEOUT_S: int = 1800  # 30 min; increase on ARM64 / slow hardware
 
     # ------------------------------------------------------------------
     # Machine Learning

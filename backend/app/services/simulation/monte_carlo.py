@@ -10,6 +10,7 @@ import json
 import logging
 import signal
 import sqlite3
+import time
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from typing import Callable
@@ -37,12 +38,20 @@ logger = logging.getLogger(__name__)
 # Max seconds allowed for the entire simulation loop (not counting DB writes).
 # signal.SIGALRM only works on Unix in the main thread of a process, which is
 # exactly the environment RQ workers run in (forked child process per job).
-_SIMULATION_TIMEOUT_S = 480   # 8 minutes
+# Configurable via MONTE_CARLO_TIMEOUT_S (default 1800 = 30 min; ARM64 is slower).
 _PROGRESS_LOG_INTERVAL = 5_000  # log every N iterations
 
 
+def _get_timeout() -> int:
+    return settings.MONTE_CARLO_TIMEOUT_S
+
+
 def _alarm_handler(signum: int, frame: object) -> None:  # noqa: ARG001
-    raise TimeoutError(f"Monte Carlo simulation timed out after {_SIMULATION_TIMEOUT_S}s")
+    timeout = _get_timeout()
+    raise TimeoutError(
+        f"Monte Carlo simulation timed out after {timeout}s. "
+        "Increase MONTE_CARLO_TIMEOUT_S or reduce MONTECARLO_ITERATIONS."
+    )
 
 
 # Map round labels → simulation_team_results column names
@@ -119,24 +128,31 @@ def run_monte_carlo(
 
         num_batches = max(1, (n_iter + batch - 1) // batch)
 
-        # Arm a watchdog: if the simulation loop hangs beyond _SIMULATION_TIMEOUT_S
+        # Arm a watchdog: if the simulation loop hangs beyond MONTE_CARLO_TIMEOUT_S
         # the SIGALRM handler raises TimeoutError which propagates as a normal failure.
+        _timeout_s = _get_timeout()
         _has_sigalrm = hasattr(signal, "SIGALRM")
         if _has_sigalrm:
             signal.signal(signal.SIGALRM, _alarm_handler)
-            signal.alarm(_SIMULATION_TIMEOUT_S)
+            signal.alarm(_timeout_s)
 
         try:
             completed = 0
+            _loop_start = time.monotonic()
             for batch_idx in range(num_batches):
                 batch_iters = min(batch, n_iter - completed)
 
                 for i in range(batch_iters):
                     global_i = completed + i
                     if global_i % _PROGRESS_LOG_INTERVAL == 0 and global_i > 0:
+                        elapsed = time.monotonic() - _loop_start
+                        rate = global_i / elapsed
+                        remaining = (n_iter - global_i) / rate if rate > 0 else 0
                         logger.info(
-                            "[Monte Carlo] %s — iteration %d/%d (%.1f%%)",
-                            model_name, global_i, n_iter, 100 * global_i / n_iter,
+                            "[Monte Carlo] %s — %d/%d iteraciones (%.1f%%) "
+                            "— %.0fs transcurridos, ~%.0fs restantes",
+                            model_name, global_i, n_iter,
+                            100 * global_i / n_iter, elapsed, remaining,
                         )
 
                     iter_seed = rng_seed + global_i
