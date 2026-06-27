@@ -357,6 +357,24 @@ export function useUpdateConfig() {
   })
 }
 
+export function useAdminReset() {
+  const qc = useQueryClient()
+  return useMutation<{ status: string; timestamp: string }, Error, void>({
+    mutationFn: () => api.post('/api/admin/reset', { confirm: true }),
+    onSuccess: () => {
+      qc.invalidateQueries()
+    },
+  })
+}
+
+export function useDeleteNews() {
+  const qc = useQueryClient()
+  return useMutation<{ deleted: boolean; news_id: string }, Error, string>({
+    mutationFn: (newsId: string) => api.delete(`/api/news/${newsId}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['news'] }),
+  })
+}
+
 export function useResetConfig() {
   const qc = useQueryClient()
   return useMutation<AppConfigEntry[], Error, void>({

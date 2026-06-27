@@ -93,6 +93,22 @@ class AvailabilityRepository:
             (f"-{days_lookback} days",),
         )
 
+    def delete_claim(self, claim_id: str) -> int:
+        """Delete a single availability claim by ID. Returns rows deleted (0 or 1)."""
+        cur = self._c.execute(
+            "DELETE FROM availability_claims WHERE id = ?",
+            (claim_id,),
+        )
+        return cur.rowcount
+
+    def purge_old_claims(self, days: int = 7) -> int:
+        """Hard-delete availability_claims older than *days* days. Returns count deleted."""
+        cur = self._c.execute(
+            "DELETE FROM availability_claims WHERE observed_at < datetime('now', ?)",
+            (f"-{days} days",),
+        )
+        return cur.rowcount
+
     def get_by_player(self, player_key: str) -> list[dict[str, Any]]:
         rows = self._c.execute(
             """

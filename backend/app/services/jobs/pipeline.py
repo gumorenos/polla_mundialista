@@ -372,7 +372,18 @@ def run_daily_update(
         summary["elo_update"] = {"status": "failed", "error": str(exc)}
     _progress(0.20)
 
-    # Step 2 — News analysis
+    # Step 2a — Purge stale availability_claims (> 7 days old)
+    try:
+        from app.db.repositories.availability import AvailabilityRepository
+        deleted = AvailabilityRepository(db_conn).purge_old_claims(days=7)
+        db_conn.commit()
+        logger.info("[Pipeline] %d stale news claims purged (>7 days)", deleted)
+        summary["news_purge"] = {"deleted": deleted}
+    except Exception as exc:
+        logger.warning("[Pipeline] News purge failed: %s", exc)
+        summary["news_purge"] = {"status": "failed", "error": str(exc)}
+
+    # Step 2b — News analysis
     try:
         summary["news"] = run_news_analysis(db_conn)
     except Exception as exc:

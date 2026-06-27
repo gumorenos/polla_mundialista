@@ -273,6 +273,21 @@ def get_player_form_summary() -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# DELETE /api/news/{news_id}
+# ---------------------------------------------------------------------------
+
+@router.delete("/{news_id}", dependencies=[Depends(require_admin)])
+def delete_news_claim(news_id: str) -> dict[str, Any]:
+    """Delete a single availability claim by ID. Requires admin auth."""
+    from app.db.repositories.availability import AvailabilityRepository
+    with db_transaction() as conn:
+        deleted = AvailabilityRepository(conn).delete_claim(news_id)
+    if deleted == 0:
+        raise HTTPException(status_code=404, detail=f"News claim '{news_id}' not found")
+    return {"deleted": True, "news_id": news_id}
+
+
+# ---------------------------------------------------------------------------
 # POST /api/news/trigger
 # ---------------------------------------------------------------------------
 

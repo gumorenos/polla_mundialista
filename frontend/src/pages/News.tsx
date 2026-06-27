@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useNews, useNewsSummary, usePlayerForm, useSuspensions, useTriggerNews, useJobStatus } from '../api/hooks'
+import { useDeleteNews, useNews, useNewsSummary, usePlayerForm, useSuspensions, useTriggerNews, useJobStatus } from '../api/hooks'
+import { useAuth } from '../hooks/useAuth'
 import type { NewsClaim, NewsTeamSummary, PlayerFormTeam, SuspensionTeamSummary } from '../types'
 
 const STATUS_LABELS: Record<string, string> = {
@@ -178,7 +179,15 @@ function PlayerFormCard({ team }: { team: PlayerFormTeam }) {
 // Table row
 // ---------------------------------------------------------------------------
 
-function NewsRow({ item }: { item: NewsClaim }) {
+function NewsRow({
+  item,
+  isAdmin,
+  onDelete,
+}: {
+  item: NewsClaim
+  isAdmin: boolean
+  onDelete: (id: string) => void
+}) {
   return (
     <tr className="border-t border-gray-800 hover:bg-gray-900/50">
       {/* Jugador — always visible */}
@@ -227,6 +236,23 @@ function NewsRow({ item }: { item: NewsClaim }) {
           <span>{item.source_name ?? '—'}</span>
         )}
       </td>
+
+      {/* Eliminar — solo visible si admin */}
+      {isAdmin && (
+        <td className="px-3 py-2 text-center">
+          <button
+            onClick={() => {
+              if (window.confirm('¿Eliminar esta noticia?')) {
+                onDelete(item.id)
+              }
+            }}
+            title="Eliminar noticia"
+            className="text-gray-600 hover:text-red-400 transition-colors text-base"
+          >
+            🗑️
+          </button>
+        </td>
+      )}
     </tr>
   )
 }
@@ -238,15 +264,19 @@ function NewsRow({ item }: { item: NewsClaim }) {
 export default function News() {
   const [classificationFilter, setClassificationFilter] = useState('')
   const [teamFilter, setTeamFilter] = useState('')
+  const [deleteToast, setDeleteToast] = useState<{ msg: string; ok: boolean } | null>(null)
   // FIX 6: track the job enqueued by "Actualizar Noticias" to invalidate on complete
   const [trackedJobId, setTrackedJobId] = useState<string | null>(null)
 
   const qc = useQueryClient()
   const triggerNews = useTriggerNews()
+  const deleteNews = useDeleteNews()
   const jobStatus = useJobStatus(trackedJobId)
   const summary = useNewsSummary()
   const suspensions = useSuspensions()
   const playerForm = usePlayerForm()
+  const { data: authData } = useAuth()
+  const isAdmin = authData?.authenticated === true
   const { data, isLoading, error } = useNews({
     classification: classificationFilter || undefined,
     team_id: teamFilter || undefined,
@@ -272,6 +302,19 @@ export default function News() {
     }
   }, [jobStatus.data?.status, trackedJobId, qc])
 
+  function handleDelete(newsId: string) {
+    deleteNews.mutate(newsId, {
+      onSuccess: () => {
+        setDeleteToast({ msg: 'Noticia eliminada', ok: true })
+        setTimeout(() => setDeleteToast(null), 3000)
+      },
+      onError: (err) => {
+        setDeleteToast({ msg: `Error: ${err.message}`, ok: false })
+        setTimeout(() => setDeleteToast(null), 4000)
+      },
+    })
+  }
+
   const isJobRunning = !!trackedJobId && (
     jobStatus.data?.status === 'enqueued' ||
     jobStatus.data?.status === 'started' ||
@@ -283,6 +326,19 @@ export default function News() {
 
   return (
     <div className="p-4 sm:p-8 space-y-6">
+      {/* Delete toast */}
+      {deleteToast && (
+        <div
+          className={`fixed bottom-6 right-6 z-50 rounded-lg px-4 py-3 text-sm font-medium shadow-lg ${
+            deleteToast.ok
+              ? 'bg-green-800 text-green-100 border border-green-700'
+              : 'bg-red-800 text-red-100 border border-red-700'
+          }`}
+        >
+          {deleteToast.msg}
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
@@ -404,12 +460,13 @@ export default function News() {
         <div className="overflow-x-auto rounded-lg border border-gray-800">
           <table className="w-full table-fixed text-sm">
             <colgroup>
-              <col className="w-[18%]" />   {/* Jugador */}
-              <col className="w-[13%]" />   {/* Equipo */}
-              <col className="w-[10%]" />   {/* Estado */}
-              <col className="hidden md:table-column w-[34%]" />  {/* Razón */}
-              <col className="w-[10%]" />   {/* Fecha */}
-              <col className="hidden md:table-column w-[15%]" />  {/* Fuente */}
+              <col className="w-[18%]" />
+              <col className="w-[12%]" />
+              <col className="w-[9%]" />
+              <col className="hidden md:table-column w-[30%]" />
+              <col className="w-[9%]" />
+              <col className="hidden md:table-column w-[14%]" />
+              {isAdmin && <col className="w-[8%]" />}
             </colgroup>
             <thead className="bg-gray-900">
               <tr>
@@ -431,17 +488,24 @@ export default function News() {
                 <th className="hidden md:table-cell px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-400">
                   Fuente
                 </th>
+                {isAdmin && (
+                  <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-600">
+                    ✕
+                  </th>
+                )}
               </tr>
             </thead>
             <tbody>
               {data.items.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-6 text-center text-gray-500">
+                  <td colSpan={isAdmin ? 7 : 6} className="px-4 py-6 text-center text-gray-500">
                     Sin noticias analizadas aún. Pulsa «Actualizar Noticias» para iniciar.
                   </td>
                 </tr>
               ) : (
-                data.items.map((item) => <NewsRow key={item.id} item={item} />)
+                data.items.map((item) => (
+                  <NewsRow key={item.id} item={item} isAdmin={isAdmin} onDelete={handleDelete} />
+                ))
               )}
             </tbody>
           </table>

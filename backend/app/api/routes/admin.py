@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
+from typing import Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
 from redis import Redis
 from rq import Queue
 
@@ -13,6 +16,49 @@ from app.workers.tasks import run_ingestion_pipeline, run_news_task
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin", tags=["admin"])
+
+
+class ResetBody(BaseModel):
+    confirm: bool = False
+
+
+@router.post("/reset", dependencies=[Depends(require_admin)])
+@limiter.limit(settings.RATE_LIMIT_ADMIN)
+def admin_reset(request: Request, body: ResetBody) -> dict[str, Any]:
+    """Full database and cache reset.
+
+    Truncates transient tables (simulations, predictions, news, jobs,
+    evaluations) while preserving StatsBomb historical data and reference tables.
+    Requires { "confirm": true } in the request body as a second-confirmation guard.
+    """
+    if not body.confirm:
+        raise HTTPException(status_code=400, detail="confirm must be true to proceed")
+
+    from app.db.connection import db_transaction
+
+    from app.db.repositories.admin import AdminRepository
+
+    with db_transaction() as conn:
+        repo = AdminRepository(conn)
+        deleted = repo.reset_transient_data()
+        repo.vacuum()
+
+    # Flush Redis caches (fault-tolerant — reset still succeeds if Redis unavailable)
+    redis_status = "ok"
+    try:
+        redis_conn = Redis.from_url(settings.REDIS_URL)
+        redis_conn.flushdb()
+    except Exception as exc:
+        logger.warning("admin_reset: Redis flush failed: %s", exc)
+        redis_status = f"failed: {exc}"
+
+    logger.info("admin_reset completed: %s | redis=%s", deleted, redis_status)
+    return {
+        "status":    "reset_complete",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "deleted":   deleted,
+        "redis":     redis_status,
+    }
 
 
 @router.post("/ingest", dependencies=[Depends(require_admin)])

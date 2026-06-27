@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import {
+  useAdminReset,
   useModelsComparison,
   useOddsValue,
   useSimulations,
@@ -29,6 +30,7 @@ export default function Dashboard() {
   const { data: sim } = useSimulations('poisson')
   const fullRefresh = useTriggerFullRefresh()
   const dailyUpdate = useTriggerDailyUpdate()
+  const adminReset = useAdminReset()
   const { data: authData } = useAuth()
 
   const { data: oddsData } = useOddsValue()
@@ -38,6 +40,8 @@ export default function Dashboard() {
     .slice(0, 3)
 
   const [showAnalysis, setShowAnalysis] = useState(false)
+  const [showResetModal, setShowResetModal] = useState(false)
+  const [resetMsg, setResetMsg] = useState<string | null>(null)
   const runId = sim?.run.id ?? null
   const tournamentNarrative = useTournamentNarrative(showAnalysis ? runId : null)
 
@@ -50,9 +54,59 @@ export default function Dashboard() {
     .slice(0, 5)
 
   const noToken = authData?.authenticated !== true
+  const isAdmin = !noToken
+
+  function handleReset() {
+    setResetMsg('Reseteando base de datos…')
+    adminReset.mutate(undefined, {
+      onSuccess: () => {
+        setShowResetModal(false)
+        setResetMsg(null)
+        setTimeout(() => window.location.reload(), 500)
+      },
+      onError: (err) => {
+        setResetMsg(`Error: ${err.message}`)
+      },
+    })
+  }
 
   return (
     <div className="p-4 sm:p-8 space-y-8">
+      {/* Reset confirmation modal */}
+      {showResetModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-md rounded-xl border border-red-800 bg-gray-900 p-6 space-y-4 shadow-2xl">
+            <h3 className="text-lg font-bold text-red-400">⚠️ ADVERTENCIA</h3>
+            <p className="text-sm text-gray-300">
+              Esto eliminará todas las simulaciones, predicciones, evaluaciones y noticias.
+              Los datos históricos de StatsBomb (Mundiales 2018/2022) se preservan.
+            </p>
+            <p className="text-sm font-semibold text-red-300">¿Continuar con el reset definitivo?</p>
+            {resetMsg && (
+              <p className={`text-sm ${resetMsg.startsWith('Error') ? 'text-red-400' : 'text-yellow-400'}`}>
+                {resetMsg}
+              </p>
+            )}
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => { setShowResetModal(false); setResetMsg(null) }}
+                disabled={adminReset.isPending}
+                className="rounded px-4 py-2 text-sm bg-gray-700 text-gray-200 hover:bg-gray-600 disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleReset}
+                disabled={adminReset.isPending}
+                className="rounded px-4 py-2 text-sm bg-red-700 text-white hover:bg-red-600 disabled:opacity-50 font-semibold"
+              >
+                {adminReset.isPending ? 'Reseteando…' : 'Reset definitivo'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-2xl font-bold text-white">Oráculo Mundial 2026</h2>
@@ -81,6 +135,15 @@ export default function Dashboard() {
             >
               {fullRefresh.isPending ? 'Encolando…' : 'Full Refresh'}
             </button>
+            {isAdmin && (
+              <button
+                onClick={() => setShowResetModal(true)}
+                title="Resetear toda la base de datos (excepto StatsBomb)"
+                className="rounded bg-red-800 px-4 py-2 text-sm text-white hover:bg-red-700 min-h-[44px]"
+              >
+                🗑️ Reset
+              </button>
+            )}
           </div>
         </div>
       </div>
