@@ -56,6 +56,7 @@ services:
       - exports_data:/app/data/exports
       - models_data:/app/data/models
       - backups_data:/app/data/backups
+      - /home/ubuntu/proyectos/statsbomb-data/data:/home/ubuntu/proyectos/statsbomb-data/data:ro
     networks:
       - internal
     healthcheck:
