@@ -14,25 +14,33 @@ class StrengthRepository:
         self._c = conn
 
     def upsert(self, strength: dict[str, Any]) -> None:
-        """Insert a new strength snapshot (append-only; never UPDATE)."""
+        """Insert or update the strength row for a team (one row per team_id)."""
         strength.setdefault("id", str(uuid.uuid4()))
         self._c.execute(
             """
-            INSERT OR IGNORE INTO team_strengths
+            INSERT INTO team_strengths
                 (id, team_id, attack_strength, defense_vulnerability,
                  matches_used, cutoff_date, decay_factor)
             VALUES
                 (:id, :team_id, :attack_strength, :defense_vulnerability,
                  :matches_used, :cutoff_date, :decay_factor)
+            ON CONFLICT(team_id) DO UPDATE SET
+                id                    = excluded.id,
+                attack_strength       = excluded.attack_strength,
+                defense_vulnerability = excluded.defense_vulnerability,
+                matches_used          = excluded.matches_used,
+                cutoff_date           = excluded.cutoff_date,
+                decay_factor          = excluded.decay_factor,
+                computed_at           = strftime('%Y-%m-%dT%H:%M:%SZ','now')
             """,
             {
-                "id":                   strength["id"],
-                "team_id":              strength["team_id"],
-                "attack_strength":      strength["attack_strength"],
+                "id":                    strength["id"],
+                "team_id":               strength["team_id"],
+                "attack_strength":       strength["attack_strength"],
                 "defense_vulnerability": strength["defense_vulnerability"],
-                "matches_used":         strength.get("matches_used"),
-                "cutoff_date":          strength.get("cutoff_date"),
-                "decay_factor":         strength.get("decay_factor"),
+                "matches_used":          strength.get("matches_used"),
+                "cutoff_date":           strength.get("cutoff_date"),
+                "decay_factor":          strength.get("decay_factor"),
             },
         )
 

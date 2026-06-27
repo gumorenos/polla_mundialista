@@ -22,6 +22,7 @@ _RESET_TABLES = [
     "elo_history",
     "team_context_adjustments",
     "availability_claims",
+    "team_strengths",
 ]
 
 

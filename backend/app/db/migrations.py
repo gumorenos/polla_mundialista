@@ -644,6 +644,34 @@ def _m014_player_bookings(conn: sqlite3.Connection) -> None:
     )
 
 
+def _m016_team_strengths_unique(conn: sqlite3.Connection) -> None:
+    """Deduplicate team_strengths and add UNIQUE index on team_id.
+
+    Previous code used INSERT OR IGNORE with a fresh UUID on every call,
+    which never triggered a conflict and accumulated one row per recalculation.
+    This migration keeps only the most recent row per team and adds the
+    unique constraint so future upserts work correctly.
+    """
+    # Keep only the latest row per team; safe if table is already clean.
+    conn.execute(
+        """
+        DELETE FROM team_strengths
+        WHERE id NOT IN (
+            SELECT id FROM team_strengths AS t
+            WHERE (t.team_id, t.computed_at) IN (
+                SELECT team_id, MAX(computed_at)
+                FROM team_strengths
+                GROUP BY team_id
+            )
+        )
+        """
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_team_strengths_team_id "
+        "ON team_strengths(team_id)"
+    )
+
+
 _MIGRATIONS = [
     _m001_create_all_tables,
     _m002_jobs_extend_schema,
@@ -660,6 +688,7 @@ _MIGRATIONS = [
     _m013_statsbomb_tables,
     _m014_player_bookings,
     _m015_venues,
+    _m016_team_strengths_unique,
 ]
 
 
