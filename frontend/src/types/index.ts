@@ -343,6 +343,22 @@ export interface SuspensionsResponse {
   teams: SuspensionTeamSummary[]
 }
 
+export interface PlayerFormTeam {
+  team_id: string
+  team_name: string
+  key_player: string
+  avg_xg: number
+  avg_goals: number
+  form_rating: number
+  matches_used: number
+  in_form: boolean
+  out_of_form: boolean
+}
+
+export interface PlayerFormResponse {
+  teams: PlayerFormTeam[]
+}
+
 export interface EvaluationRadar {
   metrics: string[]
   models: Record<string, number[]>

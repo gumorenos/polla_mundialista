@@ -109,6 +109,70 @@ def run_suspension_analysis(db_conn: sqlite3.Connection) -> dict[str, Any]:
     return {"affected_teams": affected_teams, "suspended_players": all_suspended}
 
 
+def run_form_analysis(db_conn: sqlite3.Connection) -> dict[str, Any]:
+    """Compute key-player form adjustments for all teams with StatsBomb data.
+
+    Inserts team_context_adjustments with adjustment_type='player_form' for
+    teams whose key striker is clearly in or out of form.
+
+    Returns:
+        {"boosted_teams": list[str], "penalised_teams": list[str],
+         "form_data": list[dict]}
+    """
+    from app.services.features.player_form import (
+        _IN_FORM_BONUS, _OUT_OF_FORM_PENALTY, get_player_form,
+        get_team_form_adjustment,
+    )
+
+    try:
+        teams = db_conn.execute("SELECT id FROM teams").fetchall()
+    except Exception as exc:
+        logger.warning("Form analysis: cannot read teams: %s", exc)
+        return {"boosted_teams": [], "penalised_teams": [], "form_data": []}
+
+    boosted: list[str] = []
+    penalised: list[str] = []
+    form_data: list[dict] = []
+
+    for row in teams:
+        team_id = row["id"] if hasattr(row, "__getitem__") else row[0]
+        try:
+            factor = get_team_form_adjustment(team_id, db_conn)
+        except Exception as exc:
+            logger.debug("Form analysis: failed for %s: %s", team_id, exc)
+            continue
+
+        if factor == 1.0:
+            continue
+
+        label = "in_form" if factor > 1.0 else "out_of_form"
+        AvailabilityRepository(db_conn).insert_context_adjustment(
+            team_id=team_id,
+            attack_factor=factor,
+            defense_factor=1.0,
+            notes=f"Player form adjustment ({label}): attack factor {factor:.3f}",
+            adjustment_type="player_form",
+        )
+        db_conn.commit()
+
+        if factor > 1.0:
+            boosted.append(team_id)
+        else:
+            penalised.append(team_id)
+
+        form_data.append({"team_id": team_id, "factor": factor, "status": label})
+        logger.info(
+            "Form adjustment applied: team=%s factor=%.3f (%s)",
+            team_id, factor, label,
+        )
+
+    logger.info(
+        "Form analysis complete: %d boosted, %d penalised",
+        len(boosted), len(penalised),
+    )
+    return {"boosted_teams": boosted, "penalised_teams": penalised, "form_data": form_data}
+
+
 def run_news_analysis(db_conn: sqlite3.Connection) -> dict[str, Any]:
     """Run the full injury detection pipeline.
 

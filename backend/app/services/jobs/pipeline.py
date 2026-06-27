@@ -345,12 +345,17 @@ def run_daily_update(
     # Step 1c — WC2026 bookings / suspensions (fault-tolerant)
     try:
         from app.services.ingestion.football_data_org import fetch_bookings_wc2026
-        from app.services.news.availability import run_suspension_analysis
+        from app.services.news.availability import run_form_analysis, run_suspension_analysis
         booking_count = fetch_bookings_wc2026(db_conn)
         suspension_result = run_suspension_analysis(db_conn)
+        form_result = run_form_analysis(db_conn)
         summary["suspensions"] = {
             "bookings_fetched": booking_count,
             "teams_affected": len(suspension_result.get("affected_teams", [])),
+        }
+        summary["player_form"] = {
+            "boosted": len(form_result.get("boosted_teams", [])),
+            "penalised": len(form_result.get("penalised_teams", [])),
         }
     except Exception as exc:
         logger.warning("Suspension ingestion failed (non-fatal): %s", exc)

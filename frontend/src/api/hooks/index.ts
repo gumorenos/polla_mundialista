@@ -14,6 +14,7 @@ import type {
   NewsSummaryResponse,
   OddsResponse,
   OddsValue,
+  PlayerFormResponse,
   ShapGlobal,
   ShapMatch,
   Snapshot,
@@ -201,6 +202,15 @@ export function useTriggerNews() {
   return useMutation<EnqueueResponse, Error, void>({
     mutationFn: () => api.post<EnqueueResponse>('/api/news/trigger', {}),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['jobs'] }),
+  })
+}
+
+export function usePlayerForm() {
+  return useQuery<PlayerFormResponse>({
+    queryKey: ['news', 'player-form'],
+    queryFn: () => api.get<PlayerFormResponse>('/api/news/player-form'),
+    staleTime: 5 * 60 * 1000,
+    retry: false,
   })
 }
 

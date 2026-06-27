@@ -198,6 +198,81 @@ def list_suspensions() -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# GET /api/news/player-form
+# ---------------------------------------------------------------------------
+
+@router.get("/player-form")
+def get_player_form_summary() -> dict[str, Any]:
+    """Return key-player form data for all teams that have StatsBomb stats.
+
+    For each team, finds the player with the most historical xG and returns
+    their recent-form metrics derived from the last 5 StatsBomb matches.
+    Only teams with StatsBomb data are included in the response.
+    """
+    from app.services.features.player_form import (
+        _IN_FORM_THRESHOLD, _OUT_OF_FORM_THRESH,
+        get_player_form,
+    )
+
+    with db_transaction() as conn:
+        try:
+            team_rows = conn.execute(
+                """
+                SELECT DISTINCT sps.team_id, t.name AS team_name
+                FROM sb_player_stats sps
+                JOIN teams t ON t.id = sps.team_id
+                """
+            ).fetchall()
+        except Exception as exc:
+            logger.warning("player-form: cannot read team list: %s", exc)
+            return {"teams": []}
+
+        teams_out = []
+        for t in team_rows:
+            team_id = t["team_id"]
+
+            # Find key player (highest cumulative xG)
+            try:
+                top_row = conn.execute(
+                    """
+                    SELECT player_name
+                    FROM sb_player_stats
+                    WHERE team_id = ?
+                    GROUP BY player_name
+                    ORDER BY SUM(xg) DESC
+                    LIMIT 1
+                    """,
+                    (team_id,),
+                ).fetchone()
+            except Exception:
+                continue
+
+            if not top_row:
+                continue
+
+            player_name = top_row["player_name"]
+            form = get_player_form(player_name, team_id, conn)
+            if not form["has_data"]:
+                continue
+
+            teams_out.append(
+                {
+                    "team_id":     team_id,
+                    "team_name":   t["team_name"],
+                    "key_player":  player_name,
+                    "avg_xg":      form["avg_xg"],
+                    "avg_goals":   form["avg_goals"],
+                    "form_rating": form["form_rating"],
+                    "matches_used": form["matches_used"],
+                    "in_form":     form["in_form"],
+                    "out_of_form": form["out_of_form"],
+                }
+            )
+
+    return {"teams": teams_out}
+
+
+# ---------------------------------------------------------------------------
 # POST /api/news/trigger
 # ---------------------------------------------------------------------------
 

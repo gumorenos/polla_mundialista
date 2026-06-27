@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useNews, useNewsSummary, useSuspensions, useTriggerNews, useJobStatus } from '../api/hooks'
-import type { NewsClaim, NewsTeamSummary, SuspensionTeamSummary } from '../types'
+import { useNews, useNewsSummary, usePlayerForm, useSuspensions, useTriggerNews, useJobStatus } from '../api/hooks'
+import type { NewsClaim, NewsTeamSummary, PlayerFormTeam, SuspensionTeamSummary } from '../types'
 
 const STATUS_LABELS: Record<string, string> = {
   injured: 'Lesión',
@@ -138,6 +138,43 @@ function SuspensionCard({ team }: { team: SuspensionTeamSummary }) {
 }
 
 // ---------------------------------------------------------------------------
+// Player form card
+// ---------------------------------------------------------------------------
+
+function PlayerFormCard({ team }: { team: PlayerFormTeam }) {
+  return (
+    <div className="rounded-lg border border-gray-700 bg-gray-900/60 p-4 space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="font-semibold text-white text-sm">{team.team_name}</span>
+        {team.in_form && (
+          <span className="inline-block rounded px-2 py-0.5 text-xs font-medium bg-green-900/60 text-green-300">
+            🔥 En racha
+          </span>
+        )}
+        {team.out_of_form && (
+          <span className="inline-block rounded px-2 py-0.5 text-xs font-medium bg-orange-900/60 text-orange-300">
+            📉 Irregular
+          </span>
+        )}
+        {!team.in_form && !team.out_of_form && (
+          <span className="inline-block rounded px-2 py-0.5 text-xs font-medium bg-gray-800 text-gray-400">
+            Regular
+          </span>
+        )}
+      </div>
+      <p className="text-xs text-gray-400">
+        Jugador clave: <span className="text-gray-200 font-medium">{team.key_player}</span>
+      </p>
+      <p className="text-xs text-gray-500">
+        Últimos {team.matches_used} partidos disponibles:{' '}
+        <span className="text-gray-300">{team.avg_xg.toFixed(2)} xG promedio</span>
+        {' · '}forma {team.form_rating.toFixed(2)}x
+      </p>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Table row
 // ---------------------------------------------------------------------------
 
@@ -209,6 +246,7 @@ export default function News() {
   const jobStatus = useJobStatus(trackedJobId)
   const summary = useNewsSummary()
   const suspensions = useSuspensions()
+  const playerForm = usePlayerForm()
   const { data, isLoading, error } = useNews({
     classification: classificationFilter || undefined,
     team_id: teamFilter || undefined,
@@ -312,6 +350,20 @@ export default function News() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
             {suspensions.data.teams.map((team) => (
               <SuspensionCard key={team.team_id} team={team} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Player form — StatsBomb xG */}
+      {playerForm.data && playerForm.data.teams.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-gray-400 mb-3">
+            Forma individual — jugador clave ({playerForm.data.teams.length} equipos con datos StatsBomb)
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+            {playerForm.data.teams.map((team) => (
+              <PlayerFormCard key={team.team_id} team={team} />
             ))}
           </div>
         </div>

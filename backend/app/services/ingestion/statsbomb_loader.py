@@ -302,6 +302,8 @@ def _ingest_player_stats(
     events_data: list[dict],
 ) -> None:
     players: dict[tuple[str, str], dict[str, Any]] = {}
+    # Substitution events: player going OFF → minute they left
+    sub_off_minute: dict[tuple[str, str], int] = {}
 
     for event in events_data:
         player_info = event.get("player")
@@ -312,6 +314,7 @@ def _ingest_player_stats(
             continue
         team_name: str = (event.get("team") or {}).get("name", "")
         event_type: str = (event.get("type") or {}).get("name", "")
+        minute: int = event.get("minute") or 0
 
         key = (player_name, team_name)
         if key not in players:
@@ -323,9 +326,11 @@ def _ingest_player_stats(
                 "xg": 0.0,
                 "shots": 0,
                 "key_passes": 0,
+                "minutes_played": 90,  # default; overridden by substitution event
             }
 
         p = players[key]
+
         if event_type == "Shot":
             p["shots"] += 1
             shot: dict = event.get("shot") or {}
@@ -336,6 +341,14 @@ def _ingest_player_stats(
             pass_data: dict = event.get("pass") or {}
             if pass_data.get("shot_assist") or pass_data.get("goal_assist"):
                 p["key_passes"] += 1
+        elif event_type == "Substitution":
+            # The player field is the one going OFF at this minute
+            sub_off_minute[key] = minute
+
+    # Apply substitution minutes to players who came off
+    for key, off_min in sub_off_minute.items():
+        if key in players:
+            players[key]["minutes_played"] = off_min
 
     for (player_name, team_name), p in players.items():
         pid = hashlib.md5(
@@ -345,11 +358,12 @@ def _ingest_player_stats(
             """
             INSERT OR REPLACE INTO sb_player_stats
                 (id, match_id, team_id, player_name, position,
-                 goals, xg, shots, key_passes)
-            VALUES (?,?,?,?,?,?,?,?,?)
+                 minutes_played, goals, xg, shots, key_passes)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 pid, match_id, p["team_id"], player_name, p["position"],
+                p["minutes_played"],
                 p["goals"], round(p["xg"], 4), p["shots"], p["key_passes"],
             ),
         )
