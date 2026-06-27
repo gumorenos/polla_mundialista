@@ -6,6 +6,7 @@ import type {
   ConsensusWeights,
   EloHistory,
   EnqueueResponse,
+  EvaluationRadar,
   JobRecord,
   ModelMetrics,
   NarrativeResponse,
@@ -297,6 +298,15 @@ export function useTournamentNarrative(runId: string | null) {
       api.get<NarrativeResponse>(`/api/simulations/${runId}/narrative/tournament`),
     enabled: !!runId,
     staleTime: 6 * 60 * 60 * 1000,
+    retry: false,
+  })
+}
+
+export function useEvaluationRadar() {
+  return useQuery<EvaluationRadar>({
+    queryKey: ['evaluations', 'radar'],
+    queryFn: () => api.get<EvaluationRadar>('/api/evaluations/radar'),
+    staleTime: 5 * 60 * 1000,
     retry: false,
   })
 }

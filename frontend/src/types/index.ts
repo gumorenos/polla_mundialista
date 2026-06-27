@@ -342,3 +342,9 @@ export interface SuspensionTeamSummary {
 export interface SuspensionsResponse {
   teams: SuspensionTeamSummary[]
 }
+
+export interface EvaluationRadar {
+  metrics: string[]
+  models: Record<string, number[]>
+  raw: Record<string, (number | null)[]>
+}

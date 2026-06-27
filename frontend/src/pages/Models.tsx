@@ -10,11 +10,12 @@ import { useState } from 'react'
 import {
   BarChart, Bar,
   LineChart, Line,
+  RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
   XAxis, YAxis,
   Tooltip, Legend,
   ResponsiveContainer, Cell,
 } from 'recharts'
-import { useConsensusWeights, useFavoriteHistory, useModelsComparison, useShapGlobal } from '../api/hooks'
+import { useConsensusWeights, useEvaluationRadar, useFavoriteHistory, useModelsComparison, useShapGlobal } from '../api/hooks'
 import type { ModelMetrics } from '../types'
 
 const col = createColumnHelper<ModelMetrics>()
@@ -331,6 +332,147 @@ function FavoriteEvolutionSection() {
 }
 
 // ---------------------------------------------------------------------------
+// Radar chart — visual model comparison
+// ---------------------------------------------------------------------------
+
+const RADAR_COLORS: Record<string, string> = {
+  baseline:        '#6b7280',
+  elo:             '#3b82f6',
+  poisson:         '#22c55e',
+  poisson_context: '#facc15',
+  ml_calibrated:   '#a855f7',
+}
+
+function ModelRadarChart() {
+  const { data, isLoading, error } = useEvaluationRadar()
+  const [hidden, setHidden] = useState<Set<string>>(new Set())
+
+  if (isLoading) return <p className="text-sm text-gray-400">Cargando radar…</p>
+  if (error) {
+    return (
+      <p className="text-sm text-yellow-500">
+        Radar no disponible — ejecuta un full-refresh para generar evaluaciones.
+      </p>
+    )
+  }
+  if (!data || Object.keys(data.models).length === 0) {
+    return (
+      <p className="text-sm text-gray-500">
+        Sin evaluaciones. Ejecuta un full-refresh para ver el radar.
+      </p>
+    )
+  }
+
+  // Build one data point per metric axis
+  const chartData = data.metrics.map((metricLabel, mi) => {
+    const point: Record<string, string | number> = { metric: metricLabel }
+    for (const [model, vals] of Object.entries(data.models)) {
+      point[model] = vals[mi]
+    }
+    return point
+  })
+
+  const modelList = Object.keys(data.models)
+
+  function toggleModel(model: string) {
+    setHidden((prev) => {
+      const next = new Set(prev)
+      if (next.has(model)) next.delete(model)
+      else next.add(model)
+      return next
+    })
+  }
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <h3 className="text-sm font-semibold uppercase tracking-wider text-gray-400">
+          Comparación visual de rendimiento
+        </h3>
+        <p className="mt-1 text-xs text-gray-500">
+          Valores normalizados: en todos los ejes, más lejos del centro es mejor.
+          Haz clic en la leyenda para mostrar/ocultar modelos.
+        </p>
+      </div>
+
+      {/* Clickable legend */}
+      <div className="flex flex-wrap gap-3">
+        {modelList.map((model) => {
+          const color = RADAR_COLORS[model] ?? '#9ca3af'
+          const isHidden = hidden.has(model)
+          return (
+            <button
+              key={model}
+              onClick={() => toggleModel(model)}
+              className={`flex items-center gap-1.5 rounded px-2 py-1 text-xs transition-opacity ${
+                isHidden ? 'opacity-30' : 'opacity-100'
+              }`}
+            >
+              <span
+                className="inline-block h-2.5 w-2.5 rounded-full"
+                style={{ background: color }}
+              />
+              <span className="text-gray-300">{MODEL_DISPLAY[model] ?? model}</span>
+            </button>
+          )
+        })}
+      </div>
+
+      <div className="rounded-lg border border-gray-800 bg-gray-950 p-4">
+        <ResponsiveContainer width="100%" height={320}>
+          <RadarChart data={chartData} margin={{ top: 10, right: 30, bottom: 10, left: 30 }}>
+            <PolarGrid stroke="#374151" />
+            <PolarAngleAxis
+              dataKey="metric"
+              tick={{ fill: '#d1d5db', fontSize: 12, fontWeight: 500 }}
+            />
+            <PolarRadiusAxis
+              angle={90}
+              domain={[0, 1]}
+              tick={{ fill: '#6b7280', fontSize: 10 }}
+              tickCount={4}
+              axisLine={false}
+            />
+            {modelList.map((model) => {
+              if (hidden.has(model)) return null
+              const color = RADAR_COLORS[model] ?? '#9ca3af'
+              return (
+                <Radar
+                  key={model}
+                  name={MODEL_DISPLAY[model] ?? model}
+                  dataKey={model}
+                  stroke={color}
+                  fill={color}
+                  fillOpacity={0.08}
+                  strokeWidth={2}
+                  dot={{ r: 3, fill: color }}
+                />
+              )
+            })}
+            <Tooltip
+              contentStyle={{
+                background: '#111827',
+                border: '1px solid #374151',
+                borderRadius: 6,
+                fontSize: 11,
+              }}
+              formatter={(value: number, name: string, props: { payload?: Record<string, number> }) => {
+                // Find metric index from the current axis label
+                const metricLabel = (props.payload as Record<string, string> | undefined)?.metric ?? ''
+                const mi = data.metrics.indexOf(metricLabel)
+                const rawVal = mi >= 0 ? (data.raw[name]?.[mi] ?? null) : null
+                const rawStr = rawVal != null ? ` (raw: ${rawVal.toFixed(4)})` : ''
+                return [`${value.toFixed(3)}${rawStr}`, MODEL_DISPLAY[name] ?? name]
+              }}
+            />
+          </RadarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 
@@ -407,6 +549,9 @@ export default function Models() {
           </table>
         </div>
       )}
+
+      {/* Radar chart — visual comparison */}
+      <ModelRadarChart />
 
       {/* SHAP global importance */}
       <ShapGlobalChart />
