@@ -168,7 +168,7 @@ class Settings(BaseSettings):
     # The Odds API — https://the-odds-api.com (plan gratuito: 500 req/mes)
     # ------------------------------------------------------------------
     ODDS_API_KEY: str = ""
-    ODDS_API_SPORT: str = "soccer_fifa_world_cup"
+    ODDS_API_SPORT: str = "soccer_fifa_world_cup_winner"
     ODDS_API_BASE_URL: str = "https://api.the-odds-api.com/v4"
 
     # ------------------------------------------------------------------

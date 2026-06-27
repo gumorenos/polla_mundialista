@@ -30,6 +30,7 @@ _MIN_WEIGHT = 1e-6       # below this a match is considered negligible
 _STRENGTH_MIN = 0.30    # hard floor after normalisation
 _STRENGTH_MAX = 3.00    # hard ceiling after normalisation
 _XG_MIN_MATCHES = 3     # minimum StatsBomb matches to trust xG strengths
+_MIN_MATCHES_FOR_GLOBAL_MEAN = 10  # exclude noisy outliers from global normalisation baseline
 
 
 def calculate_xg_strengths(
@@ -205,9 +206,22 @@ def calculate_team_strengths(
             raw_attack[tid]  = None  # type: ignore[assignment]
             raw_defense[tid] = None  # type: ignore[assignment]
 
-    # Global means (exclude teams with no data so they don't skew the average)
-    valid_atk = [v for v in raw_attack.values() if v is not None]
-    valid_def = [v for v in raw_defense.values() if v is not None]
+    # Global means — only teams with sufficient history; teams with very few matches
+    # have noisy goal ratios that inflate the mean and depress good teams' scores.
+    valid_atk = [
+        raw_attack[tid]
+        for tid, a in acc.items()
+        if raw_attack[tid] is not None and a["matches_total"] >= _MIN_MATCHES_FOR_GLOBAL_MEAN
+    ]
+    valid_def = [
+        raw_defense[tid]
+        for tid, a in acc.items()
+        if raw_defense[tid] is not None and a["matches_total"] >= _MIN_MATCHES_FOR_GLOBAL_MEAN
+    ]
+    # Fall back to all teams with any history if fewer than 3 qualify (e.g. test DB)
+    if len(valid_atk) < 3:
+        valid_atk = [v for v in raw_attack.values() if v is not None]
+        valid_def = [v for v in raw_defense.values() if v is not None]
 
     global_mean_atk = mean(valid_atk) if valid_atk else 1.0
     global_mean_def = mean(valid_def) if valid_def else 1.0
