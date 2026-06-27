@@ -99,11 +99,40 @@ class PoissonContextModel(PoissonModel):
             lam_h *= (1.0 + settings.SUSPENSION_DEFENSE_PENALTY) ** capped
             used.append(f"suspension_penalty_away(n={away_susp})")
 
+        # --- Altitude and host-team advantage ---
+        venue_id = ctx.get("venue_id") or (
+            self._get_venue_id(home_team_id, away_team_id) if not fixture_id else None
+        )
+        if venue_id is None and fixture_id:
+            venue_id = self._get_venue_id_by_fixture(fixture_id)
+
+        if venue_id:
+            from app.services.features.altitude_adjustment import get_altitude_adjustment
+            adj_h = get_altitude_adjustment(home_team_id, venue_id, self._conn)
+            adj_a = get_altitude_adjustment(away_team_id, venue_id, self._conn)
+            if adj_h and adj_h["combined"] != 1.0:
+                lam_h *= adj_h["combined"]
+                used.append(
+                    f"altitude_home(venue={venue_id},alt={int(adj_h['altitude_m'])}m,"
+                    f"adj={adj_h['combined']:.3f})"
+                )
+            if adj_a and adj_a["combined"] != 1.0:
+                lam_a *= adj_a["combined"]
+                used.append(
+                    f"altitude_away(venue={venue_id},alt={int(adj_a['altitude_m'])}m,"
+                    f"adj={adj_a['combined']:.3f})"
+                )
+        else:
+            missing.append("venue_id")
+
         # Clamp lambdas to a reasonable range
         lam_h = max(0.1, lam_h)
         lam_a = max(0.1, lam_a)
 
-        return self._build_prediction(lam_h, lam_a, used, missing)
+        result = self._build_prediction(lam_h, lam_a, used, missing)
+        if venue_id:
+            result["venue_id"] = venue_id
+        return result
 
     # ------------------------------------------------------------------
     # xG-based strength override
@@ -179,6 +208,38 @@ class PoissonContextModel(PoissonModel):
             )
             return 0
         return int(row["n"]) if row else 0
+
+    def _get_venue_id(self, home_team_id: str, away_team_id: str) -> str | None:
+        """Return venue_id for the next scheduled fixture between the two teams."""
+        try:
+            row = self._conn.execute(
+                """
+                SELECT venue_id FROM fixtures
+                WHERE home_team_id = ? AND away_team_id = ?
+                  AND venue_id IS NOT NULL
+                ORDER BY match_date ASC
+                LIMIT 1
+                """,
+                (home_team_id, away_team_id),
+            ).fetchone()
+        except Exception as exc:
+            logger.debug("PoissonContext: venue lookup failed for %s/%s: %s",
+                         home_team_id, away_team_id, exc)
+            return None
+        return row["venue_id"] if row else None
+
+    def _get_venue_id_by_fixture(self, fixture_id: str) -> str | None:
+        """Return venue_id for a specific fixture."""
+        try:
+            row = self._conn.execute(
+                "SELECT venue_id FROM fixtures WHERE id = ?",
+                (fixture_id,),
+            ).fetchone()
+        except Exception as exc:
+            logger.debug("PoissonContext: venue lookup failed for fixture %s: %s",
+                         fixture_id, exc)
+            return None
+        return row["venue_id"] if row else None
 
     def _count_active_suspensions(self, team_id: str) -> int:
         """Count players under FIFA WC suspension (2+ yellows or red card)."""

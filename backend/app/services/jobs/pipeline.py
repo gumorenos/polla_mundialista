@@ -105,6 +105,7 @@ def run_full_refresh(
         load_historical_results_from_csv,
         load_ratings_from_csv,
         load_teams_from_csv,
+        load_venues_from_csv,
     )
     from app.services.ingestion.elo_scraper import ingest_elo_ratings
     from app.services.ml.trainer import train_ml_model
@@ -133,11 +134,13 @@ def run_full_refresh(
         teams    = load_teams_from_csv()
         groups   = load_groups_from_csv()
         fixtures = load_fixtures_from_csv()
+        venues   = load_venues_from_csv()
         ratings  = load_ratings_from_csv()
         history  = load_historical_results_from_csv()
         summary["ingest_csv"] = {
             "teams": teams, "groups": groups,
-            "fixtures": fixtures, "ratings": ratings, "history": history,
+            "fixtures": fixtures, "venues": venues,
+            "ratings": ratings, "history": history,
         }
         if teams == 0:
             raise RuntimeError(

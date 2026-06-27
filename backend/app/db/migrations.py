@@ -598,6 +598,26 @@ def _m013_statsbomb_tables(conn: sqlite3.Connection) -> None:
     )
 
 
+def _m015_venues(conn: sqlite3.Connection) -> None:
+    """Venue table for WC2026 stadiums with altitude and host team data."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS venues (
+            venue_id     TEXT PRIMARY KEY,
+            venue_name   TEXT NOT NULL,
+            city         TEXT,
+            country      TEXT,
+            altitude_m   INTEGER DEFAULT 0,
+            host_team_id TEXT
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_venues_country ON venues(country)"
+    )
+    _add_col(conn, "fixtures", "venue_id", "TEXT")
+
+
 def _m014_player_bookings(conn: sqlite3.Connection) -> None:
     """Player card bookings for WC2026 — used for suspension detection."""
     conn.execute(
@@ -639,6 +659,7 @@ _MIGRATIONS = [
     _m012_elo_history,
     _m013_statsbomb_tables,
     _m014_player_bookings,
+    _m015_venues,
 ]
 
 

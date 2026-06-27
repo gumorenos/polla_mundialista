@@ -1,0 +1,16 @@
+venue_id,venue_name,city,country,altitude_m,host_team_id
+AZT,Estadio Azteca,Mexico City,MEX,2240,MEX
+EST,Estadio Akron,Guadalajara,MEX,1566,MEX
+NRG,NRG Stadium,Houston,USA,15,USA
+ATL,Mercedes-Benz Stadium,Atlanta,USA,309,USA
+DAL,AT&T Stadium,Dallas,USA,183,USA
+SFO,Levi's Stadium,Santa Clara,USA,27,USA
+LAX,SoFi Stadium,Los Angeles,USA,90,USA
+SEA,Lumen Field,Seattle,USA,0,USA
+NYC,MetLife Stadium,New York,USA,10,USA
+BOS,Gillette Stadium,Boston,USA,30,USA
+KC,Arrowhead Stadium,Kansas City,USA,327,USA
+PHI,Lincoln Financial Field,Philadelphia,USA,15,USA
+TOR,BMO Field,Toronto,CAN,76,CAN
+VAN,BC Place,Vancouver,CAN,14,CAN
+MTL,Stade Olympique,Montreal,CAN,30,CAN

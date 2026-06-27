@@ -283,6 +283,50 @@ def load_historical_results_from_csv(
         return _load(c)
 
 
+def load_venues_from_csv(
+    csv_path: Path | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> int:
+    path = csv_path or (_raw_path() / "venues_2026.csv")
+    df = _read_csv(path, "load_venues")
+    if df is None:
+        return 0
+
+    def _load(c: sqlite3.Connection) -> int:
+        count = 0
+        for _, row in df.iterrows():
+            try:
+                c.execute(
+                    """
+                    INSERT OR REPLACE INTO venues
+                        (venue_id, venue_name, city, country, altitude_m, host_team_id)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        str(row["venue_id"]).strip(),
+                        str(row["venue_name"]).strip(),
+                        str(row.get("city", "")).strip() or None,
+                        str(row.get("country", "")).strip() or None,
+                        int(row.get("altitude_m", 0) or 0),
+                        str(row.get("host_team_id", "")).strip() or None,
+                    ),
+                )
+                count += 1
+            except Exception as exc:
+                logger.warning("Skipping venue row %s: %s", row.to_dict(), exc)
+        return count
+
+    if conn is not None:
+        n = _load(conn)
+        conn.commit()
+        logger.info("load_venues: %d venues loaded from %s", n, path)
+        return n
+    with db_transaction() as c:
+        n = _load(c)
+    logger.info("load_venues: %d venues loaded from %s", n, path)
+    return n
+
+
 def load_ratings_from_csv(
     elo_path: Path | None = None,
     fifa_path: Path | None = None,
