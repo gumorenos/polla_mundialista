@@ -29,6 +29,92 @@ logger = logging.getLogger(__name__)
 _MIN_WEIGHT = 1e-6       # below this a match is considered negligible
 _STRENGTH_MIN = 0.30    # hard floor after normalisation
 _STRENGTH_MAX = 3.00    # hard ceiling after normalisation
+_XG_MIN_MATCHES = 3     # minimum StatsBomb matches to trust xG strengths
+
+
+def calculate_xg_strengths(
+    team_id: str,
+    conn: sqlite3.Connection,
+    last_n_matches: int = 30,
+    decay_factor: float | None = None,
+) -> dict[str, Any] | None:
+    """Compute attack/defense strengths based on xG (expected goals) from StatsBomb.
+
+    xG is more stable and predictive than actual goals.
+    Returns None if fewer than _XG_MIN_MATCHES records exist for this team.
+    """
+    decay = decay_factor if decay_factor is not None else settings.TIME_DECAY_FACTOR
+    today = date.today()
+
+    try:
+        rows = conn.execute(
+            """
+            SELECT sms.xg, sms.xg_conceded, sm.match_date
+            FROM sb_match_stats sms
+            JOIN sb_matches sm ON sms.match_id = sm.match_id
+            WHERE sms.team_id = ?
+            ORDER BY sm.match_date DESC
+            LIMIT ?
+            """,
+            (team_id, last_n_matches),
+        ).fetchall()
+    except Exception as exc:
+        logger.debug("calculate_xg_strengths: query failed for %s: %s", team_id, exc)
+        return None
+
+    if len(rows) < _XG_MIN_MATCHES:
+        return None
+
+    # Global averages for normalisation
+    try:
+        g = conn.execute(
+            """
+            SELECT AVG(xg) AS avg_xg, AVG(xg_conceded) AS avg_xgc
+            FROM sb_match_stats
+            WHERE xg > 0 OR xg_conceded > 0
+            """
+        ).fetchone()
+        global_avg_xg  = float(g["avg_xg"]  or 1.0)
+        global_avg_xgc = float(g["avg_xgc"] or 1.0)
+    except Exception:
+        global_avg_xg  = 1.0
+        global_avg_xgc = 1.0
+
+    if global_avg_xg <= 0:
+        global_avg_xg = 1.0
+    if global_avg_xgc <= 0:
+        global_avg_xgc = 1.0
+
+    # Temporally-decayed weighted average
+    xg_weighted  = 0.0
+    xgc_weighted = 0.0
+    weight_total = 0.0
+
+    for row in rows:
+        try:
+            match_date = date.fromisoformat(row["match_date"][:10])
+        except (ValueError, TypeError):
+            continue
+        days = max(0, (today - match_date).days)
+        weight = math.exp(-decay * days)
+        xg_weighted  += float(row["xg"])          * weight
+        xgc_weighted += float(row["xg_conceded"]) * weight
+        weight_total += weight
+
+    if weight_total <= 0:
+        return None
+
+    avg_xg  = xg_weighted  / weight_total
+    avg_xgc = xgc_weighted / weight_total
+
+    attack_xg  = max(_STRENGTH_MIN, min(_STRENGTH_MAX, avg_xg  / global_avg_xg))
+    defense_xg = max(_STRENGTH_MIN, min(_STRENGTH_MAX, avg_xgc / global_avg_xgc))
+
+    return {
+        "attack_xg":   round(attack_xg,  4),
+        "defense_xg":  round(defense_xg, 4),
+        "sample_size": len(rows),
+    }
 
 
 def calculate_team_strengths(

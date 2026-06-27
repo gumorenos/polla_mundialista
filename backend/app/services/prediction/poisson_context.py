@@ -106,6 +106,33 @@ class PoissonContextModel(PoissonModel):
         return self._build_prediction(lam_h, lam_a, used, missing)
 
     # ------------------------------------------------------------------
+    # xG-based strength override
+    # ------------------------------------------------------------------
+
+    def _get_strength(self, team_id: str) -> tuple[float, float, bool]:
+        """Return (attack, defense, found) preferring xG over raw goals.
+
+        Priority:
+          1. calculate_xg_strengths() — StatsBomb xG (most predictive)
+          2. team_strengths table — goals-based with decay
+          3. defaults (1.0, 1.0)
+        """
+        try:
+            from app.services.features.strengths import calculate_xg_strengths
+            xg = calculate_xg_strengths(team_id, self._conn)
+            if xg is not None:
+                logger.debug(
+                    "PoissonContext: %s using xG strengths (n=%d) atk=%.3f def=%.3f",
+                    team_id, xg["sample_size"], xg["attack_xg"], xg["defense_xg"],
+                )
+                return xg["attack_xg"], xg["defense_xg"], True
+        except Exception as exc:
+            logger.debug("PoissonContext: xG strength lookup failed for %s: %s", team_id, exc)
+
+        # Fallback to goals-based strengths from team_strengths table
+        return super()._get_strength(team_id)
+
+    # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
 

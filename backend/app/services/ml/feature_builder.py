@@ -24,22 +24,56 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 FEATURE_NAMES: list[str] = [
+    # ELO ratings
     "elo_home",
     "elo_away",
     "elo_diff",
+    # Poisson goal-based strengths
     "attack_home",
     "defense_home",
     "attack_away",
     "defense_away",
+    # Venue
     "is_neutral",
+    # Poisson lambdas
     "lam_home",
     "lam_away",
+    # ELO win probability
     "elo_p_home",
+    # StatsBomb xG features
+    "home_avg_xg",
+    "home_avg_xg_conceded",
+    "home_avg_possession",
+    "home_shot_accuracy",
+    "home_avg_pressures",
+    "home_duel_win_rate",
+    "home_has_sb_data",
+    "away_avg_xg",
+    "away_avg_xg_conceded",
+    "away_avg_possession",
+    "away_shot_accuracy",
+    "away_avg_pressures",
+    "away_duel_win_rate",
+    "away_has_sb_data",
+    # Derived xG features
+    "xg_difference",
+    "xg_defense_ratio",
 ]
 
 _DEFAULT_ELO = 1500.0
 _DEFAULT_ATTACK = 1.0
 _DEFAULT_DEFENSE = 1.0
+
+# StatsBomb default values (league averages as fallback)
+_SB_DEFAULTS: dict[str, float] = {
+    "avg_xg":           1.3,
+    "avg_xg_conceded":  1.3,
+    "avg_possession":   50.0,
+    "shot_accuracy":    0.35,
+    "avg_pressures":    120.0,
+    "duel_win_rate":    0.50,
+    "has_sb_data":      0.0,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -88,6 +122,95 @@ def load_strength_map(conn: sqlite3.Connection) -> dict[str, dict[str, float]]:
 
 
 # ---------------------------------------------------------------------------
+# StatsBomb feature helpers
+# ---------------------------------------------------------------------------
+
+def get_statsbomb_features(
+    team_id: str,
+    conn: sqlite3.Connection,
+) -> dict[str, float]:
+    """Return aggregated StatsBomb features for *team_id*.
+
+    Computes over all available sb_match_stats rows for the team.
+    Returns default values (league averages) when no StatsBomb data exists,
+    so callers never need to handle None.
+    """
+    try:
+        row = conn.execute(
+            """
+            SELECT
+                AVG(xg)                                     AS avg_xg,
+                AVG(xg_conceded)                            AS avg_xg_conceded,
+                AVG(possession)                             AS avg_possession,
+                CASE WHEN SUM(shots) > 0
+                     THEN CAST(SUM(shots_on_target) AS REAL) / SUM(shots)
+                     ELSE 0.0 END                           AS shot_accuracy,
+                AVG(pressures)                              AS avg_pressures,
+                CASE WHEN SUM(duels_total) > 0
+                     THEN CAST(SUM(duels_won) AS REAL) / SUM(duels_total)
+                     ELSE 0.5 END                           AS duel_win_rate,
+                COUNT(*)                                    AS n_matches
+            FROM sb_match_stats
+            WHERE team_id = ?
+            """,
+            (team_id,),
+        ).fetchone()
+    except Exception:
+        row = None
+
+    if row is None or (row["n_matches"] or 0) == 0:
+        return {**_SB_DEFAULTS}
+
+    return {
+        "avg_xg":           float(row["avg_xg"]          or _SB_DEFAULTS["avg_xg"]),
+        "avg_xg_conceded":  float(row["avg_xg_conceded"] or _SB_DEFAULTS["avg_xg_conceded"]),
+        "avg_possession":   float(row["avg_possession"]   or _SB_DEFAULTS["avg_possession"]),
+        "shot_accuracy":    float(row["shot_accuracy"]    or _SB_DEFAULTS["shot_accuracy"]),
+        "avg_pressures":    float(row["avg_pressures"]    or _SB_DEFAULTS["avg_pressures"]),
+        "duel_win_rate":    float(row["duel_win_rate"]    or _SB_DEFAULTS["duel_win_rate"]),
+        "has_sb_data":      1.0,
+    }
+
+
+def load_statsbomb_map(conn: sqlite3.Connection) -> dict[str, dict[str, float]]:
+    """Return {team_id: sb_features} for all teams that appear in sb_match_stats."""
+    try:
+        rows = conn.execute(
+            """
+            SELECT
+                team_id,
+                AVG(xg)                                     AS avg_xg,
+                AVG(xg_conceded)                            AS avg_xg_conceded,
+                AVG(possession)                             AS avg_possession,
+                CASE WHEN SUM(shots) > 0
+                     THEN CAST(SUM(shots_on_target) AS REAL) / SUM(shots)
+                     ELSE 0.0 END                           AS shot_accuracy,
+                AVG(pressures)                              AS avg_pressures,
+                CASE WHEN SUM(duels_total) > 0
+                     THEN CAST(SUM(duels_won) AS REAL) / SUM(duels_total)
+                     ELSE 0.5 END                           AS duel_win_rate
+            FROM sb_match_stats
+            GROUP BY team_id
+            """
+        ).fetchall()
+    except Exception:
+        return {}
+
+    result: dict[str, dict[str, float]] = {}
+    for row in rows:
+        result[row["team_id"]] = {
+            "avg_xg":           float(row["avg_xg"]          or _SB_DEFAULTS["avg_xg"]),
+            "avg_xg_conceded":  float(row["avg_xg_conceded"] or _SB_DEFAULTS["avg_xg_conceded"]),
+            "avg_possession":   float(row["avg_possession"]   or _SB_DEFAULTS["avg_possession"]),
+            "shot_accuracy":    float(row["shot_accuracy"]    or _SB_DEFAULTS["shot_accuracy"]),
+            "avg_pressures":    float(row["avg_pressures"]    or _SB_DEFAULTS["avg_pressures"]),
+            "duel_win_rate":    float(row["duel_win_rate"]    or _SB_DEFAULTS["duel_win_rate"]),
+            "has_sb_data":      1.0,
+        }
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Single-match feature computation
 # ---------------------------------------------------------------------------
 
@@ -97,10 +220,12 @@ def compute_features(
     is_neutral: bool,
     elo_map: dict[str, float],
     strength_map: dict[str, dict[str, float]],
+    sb_map: dict[str, dict[str, float]] | None = None,
 ) -> tuple[list[float], list[str]]:
     """Return (feature_vector, missing_feature_names) for a single match.
 
     Uses pre-loaded maps for efficiency in batch contexts.
+    sb_map: optional StatsBomb features keyed by team_id.
     """
     missing: list[str] = []
 
@@ -136,6 +261,16 @@ def compute_features(
     elo_diff = elo_h - elo_a
     elo_p_home = 1.0 / (1.0 + 10.0 ** (-elo_diff / 400.0))
 
+    # StatsBomb features — use map if available, else defaults
+    sb_h: dict[str, float] = (sb_map or {}).get(home_team_id, _SB_DEFAULTS)
+    sb_a: dict[str, float] = (sb_map or {}).get(away_team_id, _SB_DEFAULTS)
+
+    home_avg_xg  = sb_h.get("avg_xg",          _SB_DEFAULTS["avg_xg"])
+    away_avg_xg  = sb_a.get("avg_xg",          _SB_DEFAULTS["avg_xg"])
+    xg_diff      = home_avg_xg - away_avg_xg
+    away_xgc     = sb_a.get("avg_xg_conceded", _SB_DEFAULTS["avg_xg_conceded"])
+    xg_def_ratio = home_avg_xg / max(away_xgc, 0.1)
+
     features = [
         elo_h,
         elo_a,
@@ -148,6 +283,25 @@ def compute_features(
         lam_h,
         lam_a,
         elo_p_home,
+        # StatsBomb home
+        home_avg_xg,
+        sb_h.get("avg_xg_conceded", _SB_DEFAULTS["avg_xg_conceded"]),
+        sb_h.get("avg_possession",  _SB_DEFAULTS["avg_possession"]),
+        sb_h.get("shot_accuracy",   _SB_DEFAULTS["shot_accuracy"]),
+        sb_h.get("avg_pressures",   _SB_DEFAULTS["avg_pressures"]),
+        sb_h.get("duel_win_rate",   _SB_DEFAULTS["duel_win_rate"]),
+        sb_h.get("has_sb_data",     _SB_DEFAULTS["has_sb_data"]),
+        # StatsBomb away
+        away_avg_xg,
+        away_xgc,
+        sb_a.get("avg_possession",  _SB_DEFAULTS["avg_possession"]),
+        sb_a.get("shot_accuracy",   _SB_DEFAULTS["shot_accuracy"]),
+        sb_a.get("avg_pressures",   _SB_DEFAULTS["avg_pressures"]),
+        sb_a.get("duel_win_rate",   _SB_DEFAULTS["duel_win_rate"]),
+        sb_a.get("has_sb_data",     _SB_DEFAULTS["has_sb_data"]),
+        # Derived
+        xg_diff,
+        xg_def_ratio,
     ]
     return features, missing
 
@@ -159,10 +313,11 @@ def build_match_features(
     is_neutral: bool = True,
 ) -> tuple[list[float], list[str]]:
     """Convenience wrapper — loads maps from DB and computes one match's features."""
-    elo_map = load_elo_map(conn)
+    elo_map      = load_elo_map(conn)
     strength_map = load_strength_map(conn)
+    sb_map       = load_statsbomb_map(conn)
     return compute_features(
-        home_team_id, away_team_id, is_neutral, elo_map, strength_map
+        home_team_id, away_team_id, is_neutral, elo_map, strength_map, sb_map
     )
 
 
@@ -202,6 +357,7 @@ def build_training_dataset(
 
     elo_map      = load_elo_map(conn)
     strength_map = load_strength_map(conn)
+    sb_map       = load_statsbomb_map(conn)
 
     X_rows: list[list[float]] = []
     y_rows: list[int] = []
@@ -216,7 +372,7 @@ def build_training_dataset(
 
         try:
             features, _ = compute_features(
-                home_id, away_id, is_wc, elo_map, strength_map
+                home_id, away_id, is_wc, elo_map, strength_map, sb_map
             )
         except Exception as exc:
             logger.debug("Skipping %s vs %s: %s", home_id, away_id, exc)
