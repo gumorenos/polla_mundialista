@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import signal
 import sqlite3
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
@@ -32,6 +33,17 @@ from app.services.simulation.constants import (
 from app.services.simulation.wc2026_bracket import WC2026Bracket
 
 logger = logging.getLogger(__name__)
+
+# Max seconds allowed for the entire simulation loop (not counting DB writes).
+# signal.SIGALRM only works on Unix in the main thread of a process, which is
+# exactly the environment RQ workers run in (forked child process per job).
+_SIMULATION_TIMEOUT_S = 480   # 8 minutes
+_PROGRESS_LOG_INTERVAL = 5_000  # log every N iterations
+
+
+def _alarm_handler(signum: int, frame: object) -> None:  # noqa: ARG001
+    raise TimeoutError(f"Monte Carlo simulation timed out after {_SIMULATION_TIMEOUT_S}s")
+
 
 # Map round labels → simulation_team_results column names
 _ROUND_TO_COL: dict[str, str] = {
@@ -107,48 +119,66 @@ def run_monte_carlo(
 
         num_batches = max(1, (n_iter + batch - 1) // batch)
 
-        completed = 0
-        for batch_idx in range(num_batches):
-            batch_iters = min(batch, n_iter - completed)
+        # Arm a watchdog: if the simulation loop hangs beyond _SIMULATION_TIMEOUT_S
+        # the SIGALRM handler raises TimeoutError which propagates as a normal failure.
+        _has_sigalrm = hasattr(signal, "SIGALRM")
+        if _has_sigalrm:
+            signal.signal(signal.SIGALRM, _alarm_handler)
+            signal.alarm(_SIMULATION_TIMEOUT_S)
 
-            for i in range(batch_iters):
-                iter_seed = rng_seed + completed + i
-                iter_rng  = np.random.default_rng(iter_seed)
-                bracket   = WC2026Bracket(model, groups, iter_rng)
+        try:
+            completed = 0
+            for batch_idx in range(num_batches):
+                batch_iters = min(batch, n_iter - completed)
 
-                classified    = bracket.play_group_stage()
-                ko_result     = bracket.play_knockout(classified)
-                rounds_reached = ko_result["rounds_reached"]
+                for i in range(batch_iters):
+                    global_i = completed + i
+                    if global_i % _PROGRESS_LOG_INTERVAL == 0 and global_i > 0:
+                        logger.info(
+                            "[Monte Carlo] %s — iteration %d/%d (%.1f%%)",
+                            model_name, global_i, n_iter, 100 * global_i / n_iter,
+                        )
 
-                if ko_result["champion"]:
-                    win_count[ko_result["champion"]] += 1
+                    iter_seed = rng_seed + global_i
+                    iter_rng  = np.random.default_rng(iter_seed)
+                    bracket   = WC2026Bracket(model, groups, iter_rng)
 
-                # Group winners and qualifiers
-                for pos, tid in classified.items():
-                    if pos.startswith("1"):
-                        group_win_count[tid] += 1
-                    qualify_count[tid] += 1
+                    classified    = bracket.play_group_stage()
+                    ko_result     = bracket.play_knockout(classified)
+                    rounds_reached = ko_result["rounds_reached"]
 
-                # Accumulate round-reach counts
-                for tid, rnd in rounds_reached.items():
-                    rounds_count[tid][rnd] += 1
-                    if rnd in (ROUND_CHAMPION, ROUND_RUNNER_UP,
-                               ROUND_THIRD, ROUND_FOURTH, ROUND_SF):
-                        rounds_count[tid][ROUND_SF] += 1
-                    if rnd in (ROUND_CHAMPION, ROUND_RUNNER_UP):
-                        rounds_count[tid][ROUND_FINAL] += 1
-                    if rnd == ROUND_CHAMPION:
-                        rounds_count[tid][ROUND_CHAMPION] += 1
+                    if ko_result["champion"]:
+                        win_count[ko_result["champion"]] += 1
 
-            completed += batch_iters
-            progress = completed / n_iter
-            if progress_callback:
-                progress_callback(progress)
+                    # Group winners and qualifiers
+                    for pos, tid in classified.items():
+                        if pos.startswith("1"):
+                            group_win_count[tid] += 1
+                        qualify_count[tid] += 1
 
-            logger.info(
-                "MC batch %d/%d done — %d/%d iterations",
-                batch_idx + 1, num_batches, completed, n_iter,
-            )
+                    # Accumulate round-reach counts
+                    for tid, rnd in rounds_reached.items():
+                        rounds_count[tid][rnd] += 1
+                        if rnd in (ROUND_CHAMPION, ROUND_RUNNER_UP,
+                                   ROUND_THIRD, ROUND_FOURTH, ROUND_SF):
+                            rounds_count[tid][ROUND_SF] += 1
+                        if rnd in (ROUND_CHAMPION, ROUND_RUNNER_UP):
+                            rounds_count[tid][ROUND_FINAL] += 1
+                        if rnd == ROUND_CHAMPION:
+                            rounds_count[tid][ROUND_CHAMPION] += 1
+
+                completed += batch_iters
+                progress = completed / n_iter
+                if progress_callback:
+                    progress_callback(progress)
+
+                logger.info(
+                    "MC batch %d/%d done — %d/%d iterations",
+                    batch_idx + 1, num_batches, completed, n_iter,
+                )
+        finally:
+            if _has_sigalrm:
+                signal.alarm(0)  # cancel watchdog regardless of outcome
 
         try:
             if not repo.run_exists(run_id):
@@ -245,6 +275,15 @@ def _init_model(model_name: str, conn: sqlite3.Connection) -> object:
     if model_name == "consensus":
         from app.services.prediction.consensus import ConsensusModel
         return ConsensusModel(conn)
+    if model_name == "ml_calibrated":
+        try:
+            return MLCalibratedModel(conn)
+        except Exception as exc:
+            logger.warning(
+                "ML model unavailable (%s) — falling back to PoissonContextModel", exc
+            )
+            from app.services.prediction.poisson_context import PoissonContextModel
+            return PoissonContextModel(conn)
     cls = models.get(model_name)
     if cls is None:
         raise ValueError(f"Unknown model '{model_name}'. Choose from: {list(models) + ['consensus']}")
