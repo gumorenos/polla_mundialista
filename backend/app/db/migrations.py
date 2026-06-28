@@ -644,6 +644,38 @@ def _m014_player_bookings(conn: sqlite3.Connection) -> None:
     )
 
 
+def _m017_ratings_unique(conn: sqlite3.Connection) -> None:
+    """Deduplicate ratings and add UNIQUE index on (team_id, rating_type, source).
+
+    Previous _upsert generated a fresh UUID each call, so ON CONFLICT(id) never
+    fired and rows accumulated (56 rows per team after full_refresh).
+    This migration removes own_elo rows (they cause drift) and keeps only the
+    most recent row per (team_id, rating_type, source) combination.
+    """
+    # Remove own_elo rows — these are computed from all historical matches and
+    # produce impossible values (e.g. Italy ELO=2228 for teams not at WC2026).
+    conn.execute("DELETE FROM ratings WHERE source = 'own_elo'")
+
+    # Keep only the most recent row per natural key.
+    conn.execute(
+        """
+        DELETE FROM ratings
+        WHERE id NOT IN (
+            SELECT id FROM ratings AS r
+            WHERE (r.team_id, r.rating_type, r.source, r.effective_date) IN (
+                SELECT team_id, rating_type, source, MAX(effective_date)
+                FROM ratings
+                GROUP BY team_id, rating_type, source
+            )
+        )
+        """
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_ratings_natural_key "
+        "ON ratings(team_id, rating_type, source)"
+    )
+
+
 def _m016_team_strengths_unique(conn: sqlite3.Connection) -> None:
     """Deduplicate team_strengths and add UNIQUE index on team_id.
 
@@ -689,6 +721,7 @@ _MIGRATIONS = [
     _m014_player_bookings,
     _m015_venues,
     _m016_team_strengths_unique,
+    _m017_ratings_unique,
 ]
 
 

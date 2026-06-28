@@ -30,7 +30,8 @@ _MIN_WEIGHT = 1e-6       # below this a match is considered negligible
 _STRENGTH_MIN = 0.30    # hard floor after normalisation
 _STRENGTH_MAX = 3.00    # hard ceiling after normalisation
 _XG_MIN_MATCHES = 3     # minimum StatsBomb matches to trust xG strengths
-_MIN_MATCHES_FOR_GLOBAL_MEAN = 10  # exclude noisy outliers from global normalisation baseline
+_MIN_MATCHES_FOR_GLOBAL_MEAN = 20  # exclude noisy outliers from global normalisation baseline
+_MIN_MATCHES_FOR_TEAM_STRENGTH = 10  # teams below this threshold use neutral defaults (1.0/1.0)
 
 
 def calculate_xg_strengths(
@@ -238,12 +239,12 @@ def calculate_team_strengths(
 
     for tid in teams:
         a = acc[tid]
-        has_history = a["weight_total"] > 0
+        matches_total = a["matches_total"]
+        has_sufficient_history = matches_total >= _MIN_MATCHES_FOR_TEAM_STRENGTH
 
-        if has_history:
+        if has_sufficient_history:
             norm_atk = max(_STRENGTH_MIN, min(_STRENGTH_MAX, raw_attack[tid]  / global_mean_atk))
             norm_def = max(_STRENGTH_MIN, min(_STRENGTH_MAX, raw_defense[tid] / global_mean_def))
-            matches_total = a["matches_total"]
             dq_score = a["matches_with_elo"] / matches_total if matches_total else 0.0
             avg_gf = a["goals_for_sum"] / matches_total
             avg_ga = a["goals_against_sum"] / matches_total
@@ -287,18 +288,25 @@ def _load_teams(conn: sqlite3.Connection) -> dict[str, str]:
 
 
 def _load_elo_map(conn: sqlite3.Connection) -> dict[str, float]:
-    """Return {team_id: elo_value} using the most recent ELO rating per team."""
+    """Return {team_id: elo_value} using the most recent non-own_elo rating per team.
+
+    own_elo is excluded because it processes all historical matches (including
+    non-WC teams) and accumulates drift, producing impossible values that corrupt
+    the rival_factor used in attack/defense normalisation.
+    """
     rows = conn.execute(
         """
         SELECT r.team_id, r.value
         FROM ratings r
         INNER JOIN (
             SELECT team_id, MAX(effective_date) AS max_date
-            FROM ratings WHERE rating_type = 'elo'
+            FROM ratings
+            WHERE rating_type = 'elo' AND source != 'own_elo'
             GROUP BY team_id
         ) latest ON r.team_id = latest.team_id
                  AND r.effective_date = latest.max_date
                  AND r.rating_type = 'elo'
+                 AND r.source != 'own_elo'
         """
     ).fetchall()
     return {r["team_id"]: float(r["value"]) for r in rows}

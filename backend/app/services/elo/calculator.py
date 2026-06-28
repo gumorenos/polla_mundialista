@@ -1,15 +1,14 @@
 """Own ELO calculator — computed from historical match results.
 
-The computed ELO is written back to the `ratings` table with source='own_elo'
-so EloModel picks it up automatically (it queries ORDER BY effective_date DESC).
-The `elo_history` table stores per-match snapshots for the timeline chart.
+Per-match ELO snapshots are stored in `elo_history` for the timeline chart.
+own_elo values are intentionally NOT written to the `ratings` table to prevent
+drift from non-WC teams skewing the ELO baseline used in strengths calculation.
 """
 
 from __future__ import annotations
 
 import logging
 import sqlite3
-from datetime import datetime, timezone
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -126,13 +125,12 @@ def recalculate_all_elos(conn: sqlite3.Connection) -> dict[str, Any]:
 
     elo_history_repo.save_batch(history)
 
-    # Persist final values so EloModel picks them up
-    now = datetime.now(timezone.utc).isoformat()
-    for team_id, value in elos.items():
-        rating_repo.upsert_elo(team_id, value, now, source="own_elo")
-
-    logger.info(
-        "ELO recalculation complete: %d matches processed, %d teams updated",
+    # own_elo writes are intentionally disabled: processing all historical matches
+    # (including non-WC teams) produces drift and impossible values (e.g. Italy=2228).
+    # The elo_history table is still populated for the timeline chart.
+    logger.warning(
+        "ELO recalculation complete: %d matches, %d teams — "
+        "own_elo NOT written to ratings table (use scraped/CSV ELOs for strengths)",
         len(matches), len(updated_teams),
     )
     return {"matches_processed": len(matches), "teams_updated": len(updated_teams)}
@@ -202,12 +200,10 @@ def update_elos_for_new_matches(conn: sqlite3.Connection) -> dict[str, Any]:
 
     elo_history_repo.save_batch(history)
 
-    now = datetime.now(timezone.utc).isoformat()
-    for team_id in updated_teams:
-        rating_repo.upsert_elo(team_id, elos[team_id], now, source="own_elo")
-
-    logger.info(
-        "Incremental ELO update: %d new matches, %d teams updated",
+    # own_elo writes disabled — see recalculate_all_elos for rationale.
+    logger.warning(
+        "Incremental ELO update: %d new matches, %d teams — "
+        "own_elo NOT written to ratings table",
         len(new_matches), len(updated_teams),
     )
     return {"matches_processed": len(new_matches), "teams_updated": len(updated_teams)}

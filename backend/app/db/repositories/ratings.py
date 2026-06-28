@@ -96,7 +96,11 @@ class RatingRepository:
             """
             INSERT INTO ratings (id, team_id, rating_type, value, rank, effective_date, source)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(id) DO NOTHING
+            ON CONFLICT(team_id, rating_type, source)
+            DO UPDATE SET
+                value          = excluded.value,
+                rank           = excluded.rank,
+                effective_date = excluded.effective_date
             """,
             (str(uuid.uuid4()), team_id, rating_type, value, rank, effective_date, source),
         )
