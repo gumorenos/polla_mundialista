@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 _ACTIVE_STATUSES = ("enqueued", "started", "running", "cancelling")
 _ORPHAN_MAX_AGE_MINUTES = 30
 _HEARTBEAT_STALE_MINUTES = 10
+_CANCELLING_TIMEOUT_MINUTES = 10  # force-cancel if stuck in cancelling > 10 min
 
 
 def reconcile_rq_jobs(conn: sqlite3.Connection | None = None) -> dict[str, int]:
@@ -151,6 +152,11 @@ def _check_rq_job(
         )
         return True
 
+    # Force-cancel jobs stuck in 'cancelling' beyond the timeout
+    if db_status == "cancelling":
+        if _force_cancel_if_timed_out(conn, repo, job, job_id, now_iso):
+            return True
+
     return False
 
 
@@ -199,4 +205,54 @@ def _check_orphan_job(
         )
         return True
 
+    # Force-cancel jobs stuck in 'cancelling' beyond the timeout
+    now_iso = now.isoformat()
+    if job.get("status") == "cancelling":
+        if _force_cancel_if_timed_out(conn, repo, job, job_id, now_iso):
+            return True
+
+    return False
+
+
+def _force_cancel_if_timed_out(
+    conn: sqlite3.Connection,
+    repo: Any,
+    job: dict[str, Any],
+    job_id: str,
+    now_iso: str,
+) -> bool:
+    """Force-cancel a job if it has been stuck in 'cancelling' too long.
+
+    Returns True if the record was updated.
+    """
+    cancelling_at_str = job.get("cancelling_requested_at")
+    if not cancelling_at_str:
+        return False
+    try:
+        now = datetime.fromisoformat(now_iso.replace("Z", "+00:00"))
+        cancelling_dt = datetime.fromisoformat(
+            cancelling_at_str.replace("Z", "+00:00")
+        )
+        if cancelling_dt.tzinfo is None:
+            cancelling_dt = cancelling_dt.replace(tzinfo=timezone.utc)
+        if now - cancelling_dt > timedelta(minutes=_CANCELLING_TIMEOUT_MINUTES):
+            repo.update_status(
+                job_id, "cancelled",
+                finished_at=now_iso,
+                error_message=(
+                    f"Force-cancelled after {_CANCELLING_TIMEOUT_MINUTES} min "
+                    "in cancelling state (worker did not acknowledge in time)"
+                ),
+            )
+            conn.commit()
+            logger.info(
+                "reconcile: job %s force-cancelled after %s in cancelling state",
+                job_id, now - cancelling_dt,
+            )
+            return True
+    except Exception as exc:
+        logger.debug(
+            "reconcile: could not parse cancelling_requested_at for %s: %s",
+            job_id, exc,
+        )
     return False

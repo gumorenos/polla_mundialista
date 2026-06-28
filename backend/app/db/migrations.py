@@ -704,6 +704,15 @@ def _m016_team_strengths_unique(conn: sqlite3.Connection) -> None:
     )
 
 
+def _m019_jobs_cancelling_requested_at(conn: sqlite3.Connection) -> None:
+    """Add cancelling_requested_at to track when cancel was requested.
+
+    Allows the reconciler to force-cancel jobs stuck in 'cancelling' state
+    beyond a configurable timeout.
+    """
+    _add_col(conn, "jobs", "cancelling_requested_at", "TEXT")
+
+
 def _m018_wc2026_squads(conn: sqlite3.Connection) -> None:
     """WC2026 squad table — used to filter top-xG players to actual convocados."""
     conn.execute(
@@ -745,6 +754,7 @@ _MIGRATIONS = [
     _m016_team_strengths_unique,
     _m017_ratings_unique,
     _m018_wc2026_squads,
+    _m019_jobs_cancelling_requested_at,
 ]
 
 

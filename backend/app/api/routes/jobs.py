@@ -119,3 +119,42 @@ def cancel_job(request: Request, job_id: str) -> dict[str, Any]:
 
     logger.info("Job %s cancel requested (was: %s) by admin", job_id, job.get("status"))
     return {"cancelled": True, "job_id": job_id}
+
+
+@router.post("/{job_id}/force-cancel", dependencies=[Depends(require_admin)])
+@limiter.limit(settings.RATE_LIMIT_ADMIN)
+def force_cancel_job(request: Request, job_id: str) -> dict[str, Any]:
+    """Force a job to cancelled regardless of its current state.
+
+    Use when cancel leaves a job stuck in 'cancelling'. Does NOT attempt
+    graceful shutdown — updates DB directly and cancels in RQ if possible.
+    """
+    with db_transaction() as conn:
+        job = JobRepository(conn).get_by_id(job_id)
+        if not job:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Job '{job_id}' not found",
+            )
+        if job["status"] in ("completed", "failed", "cancelled"):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Job is already in terminal state '{job['status']}'",
+            )
+
+        # Best-effort RQ cancellation (don't fail if Redis unreachable)
+        rq_job_id = job.get("rq_job_id")
+        if rq_job_id:
+            try:
+                redis_conn = redis_lib.from_url(settings.REDIS_URL)
+                rq_job = RQJob.fetch(rq_job_id, connection=redis_conn)
+                rq_job.cancel()
+                logger.info("force-cancel: RQ job %s cancelled", rq_job_id)
+            except Exception as exc:
+                logger.warning("force-cancel: could not cancel RQ job %s: %s", rq_job_id, exc)
+
+        # Force DB to cancelled regardless
+        JobRepository(conn).force_cancel(job_id)
+
+    logger.info("Job %s force-cancelled by admin (was: %s)", job_id, job.get("status"))
+    return {"force_cancelled": True, "job_id": job_id, "previous_status": job["status"]}

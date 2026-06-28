@@ -111,6 +111,22 @@ class JobRepository:
         )
         return cur.rowcount > 0
 
+    def force_cancel(self, job_id: str) -> None:
+        """Immediately set a job to 'cancelled' regardless of its current state.
+
+        Use when the worker has not acknowledged a graceful cancellation in time.
+        """
+        self._c.execute(
+            """
+            UPDATE jobs
+            SET status = 'cancelled',
+                finished_at = datetime('now'),
+                error_message = 'Force-cancelled by admin'
+            WHERE id = ?
+            """,
+            (job_id,),
+        )
+
     def request_cancel(self, job_id: str) -> bool:
         """Mark a running job as 'cancelling' for graceful shutdown by the worker.
 
@@ -121,7 +137,8 @@ class JobRepository:
         cur = self._c.execute(
             """
             UPDATE jobs
-            SET status = 'cancelling'
+            SET status = 'cancelling',
+                cancelling_requested_at = datetime('now')
             WHERE id = ? AND status IN ('started', 'running')
             """,
             (job_id,),
