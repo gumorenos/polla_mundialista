@@ -292,14 +292,7 @@ def _init_model(model_name: str, conn: sqlite3.Connection) -> object:
         from app.services.prediction.consensus import ConsensusModel
         return ConsensusModel(conn)
     if model_name == "ml_calibrated":
-        try:
-            return MLCalibratedModel(conn)
-        except Exception as exc:
-            logger.warning(
-                "ML model unavailable (%s) — falling back to PoissonContextModel", exc
-            )
-            from app.services.prediction.poisson_context import PoissonContextModel
-            return PoissonContextModel(conn)
+        return MLCalibratedModel(conn)
     cls = models.get(model_name)
     if cls is None:
         raise ValueError(f"Unknown model '{model_name}'. Choose from: {list(models) + ['consensus']}")

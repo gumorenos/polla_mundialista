@@ -90,6 +90,21 @@ class MLCalibratedModel(PredictionModel):
         self.model_path: str | None = None  # exposed for cache invalidation
         self._load_model()
 
+        # Preload de mapas una sola vez — evita 14.2M queries en Monte Carlo.
+        # Los mapas son estables durante una simulación (datos no cambian mid-run).
+        from app.services.ml.feature_builder import (
+            load_elo_map,
+            load_strength_map,
+            load_statsbomb_map,
+        )
+        self._elo_map      = load_elo_map(conn)
+        self._strength_map = load_strength_map(conn)
+        self._sb_map       = load_statsbomb_map(conn)
+        logger.debug(
+            "MLCalibratedModel: maps cargados — %d ELO, %d strengths, %d StatsBomb",
+            len(self._elo_map), len(self._strength_map), len(self._sb_map),
+        )
+
     # ------------------------------------------------------------------
     # Public API (PredictionModel interface)
     # ------------------------------------------------------------------
@@ -104,16 +119,20 @@ class MLCalibratedModel(PredictionModel):
         is_neutral: bool = ctx.get("is_neutral", True)
 
         if self._clf is None:
-            return self._fallback(home_team_id, away_team_id, ctx)
+            raise RuntimeError(
+                "ml_calibrated: no hay modelo entrenado. "
+                "Ejecuta POST /api/ml/train antes de correr esta simulación."
+            )
 
-        from app.services.ml.feature_builder import build_match_features
-        features, missing = build_match_features(
-            home_team_id, away_team_id, self._conn, is_neutral
+        from app.services.ml.feature_builder import FEATURE_NAMES as _FN
+        from app.services.ml.feature_builder import compute_features
+        features, missing = compute_features(
+            home_team_id, away_team_id, is_neutral,
+            self._elo_map, self._strength_map, self._sb_map,
         )
 
         try:
             import pandas as pd
-            from app.services.ml.feature_builder import FEATURE_NAMES as _FN
             X = pd.DataFrame([features], columns=_FN)
             proba = self._clf.predict_proba(X)[0]  # shape (3,)
             total = float(sum(proba))

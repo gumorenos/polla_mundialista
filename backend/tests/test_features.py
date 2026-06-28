@@ -131,18 +131,13 @@ class TestZeroDecay:
             decay_factor=0.0,
         )
 
-        # T1 played 1 match (home, 3-1). Goals for=3, against=1.
-        # T2 played 2 matches: (away, 1-3) + (home, 2-0).
-        # T3 played 1 match (away, 0-2). Goals for=0, against=2.
-        # With no ELO data, rival_factor = 1 + 1500/3000 = 1.5 for all.
-        # Weights all = 1.0 (zero decay).
-        # T1 raw_attack = (3 * 1 * 1.5) / 1 = 4.5
-        # T3 raw_attack = (0 * 1 * 1.5) / 1 = 0.0
-        # global mean_atk = mean of all non-None raw values
-        # Just verify T3 (no goals scored) has lower attack than T1.
-        assert result["T1"]["attack_strength"] > result["T3"]["attack_strength"]
+        # T1 and T3 each played 1 match — below the shrinkage floor (_MIN_MATCHES_FOR_TEAM_STRENGTH=5)
+        # so both receive the neutral prior (1.0). T2 played 2 matches, same floor applies.
+        # The purpose of this test is decay=0 → all match weights equal → matches_used is accurate.
+        assert result["T1"]["attack_strength"] == pytest.approx(1.0)
+        assert result["T3"]["attack_strength"] == pytest.approx(1.0)
 
-        # Also verify matches_used is correct for T2 (2 matches)
+        # Verify matches_used is correct for T2 (2 matches, weight=1 each with decay=0)
         assert result["T2"]["matches_used"] == 2
 
         conn.close()

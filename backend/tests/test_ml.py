@@ -261,7 +261,8 @@ class TestMLCalibratedModel:
         train_ml_model(db, algorithm="lightgbm", train_start_year=2020)
 
     def test_fallback_when_no_model(self, db_ml):
-        """Without a trained model, should fall back to Poisson gracefully."""
+        """Without a trained model, predict_match must raise RuntimeError (no silent fallback)."""
+        import pytest
         conn = _make_db()
         for tid, name in [("A", "TeamA"), ("B", "TeamB")]:
             _insert_team(conn, tid, name)
@@ -271,10 +272,8 @@ class TestMLCalibratedModel:
 
         from app.services.prediction.ml_calibrated import MLCalibratedModel
         model = MLCalibratedModel(conn)
-        pred = model.predict_match("A", "B")
-
-        assert abs(pred["home_win"] + pred["draw"] + pred["away_win"] - 1.0) < 1e-5
-        assert "fallback-poisson" in pred.get("explanation", "")
+        with pytest.raises(RuntimeError, match="no hay modelo entrenado"):
+            model.predict_match("A", "B")
         conn.close()
 
     def test_predicts_valid_probabilities(self, db_ml, tmp_path, monkeypatch):

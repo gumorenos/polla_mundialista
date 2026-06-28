@@ -31,7 +31,8 @@ _STRENGTH_MIN = 0.30    # hard floor after normalisation
 _STRENGTH_MAX = 3.00    # hard ceiling after normalisation
 _XG_MIN_MATCHES = 3     # minimum StatsBomb matches to trust xG strengths
 _MIN_MATCHES_FOR_GLOBAL_MEAN = 20  # exclude noisy outliers from global normalisation baseline
-_MIN_MATCHES_FOR_TEAM_STRENGTH = 10  # teams below this threshold use neutral defaults (1.0/1.0)
+_MIN_MATCHES_FOR_TEAM_STRENGTH = 5   # floor absoluto: menos de esto → prior puro (1.0/1.0)
+_SHRINKAGE_K = 8.0  # peso del prior en partidos equivalentes hacia la media global
 
 
 def calculate_xg_strengths(
@@ -243,8 +244,17 @@ def calculate_team_strengths(
         has_sufficient_history = matches_total >= _MIN_MATCHES_FOR_TEAM_STRENGTH
 
         if has_sufficient_history:
-            norm_atk = max(_STRENGTH_MIN, min(_STRENGTH_MAX, raw_attack[tid]  / global_mean_atk))
-            norm_def = max(_STRENGTH_MIN, min(_STRENGTH_MAX, raw_defense[tid] / global_mean_def))
+            # Bayesian shrinkage: mezcla valor observado con prior (media global = 1.0)
+            # formula: shrunk = (observed_norm * n + 1.0 * k) / (n + k)
+            # n=5:  38% observado / 62% prior  |  n=10: 56/44  |  n=30: 79/21  |  n=60+: 88/12
+            n = matches_total
+            k = _SHRINKAGE_K
+            observed_norm_atk = raw_attack[tid]  / global_mean_atk
+            observed_norm_def = raw_defense[tid] / global_mean_def
+            shrunk_atk = (observed_norm_atk * n + 1.0 * k) / (n + k)
+            shrunk_def = (observed_norm_def * n + 1.0 * k) / (n + k)
+            norm_atk = max(_STRENGTH_MIN, min(_STRENGTH_MAX, shrunk_atk))
+            norm_def = max(_STRENGTH_MIN, min(_STRENGTH_MAX, shrunk_def))
             dq_score = a["matches_with_elo"] / matches_total if matches_total else 0.0
             avg_gf = a["goals_for_sum"] / matches_total
             avg_ga = a["goals_against_sum"] / matches_total
