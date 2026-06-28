@@ -23,7 +23,6 @@ def start_scheduler() -> None:
 
     from app.core.config import settings
     from app.scheduler.jobs import (
-        check_and_snapshot,
         enqueue_full_refresh,
         enqueue_news_update,
         fetch_odds_job,
@@ -56,14 +55,8 @@ def start_scheduler() -> None:
         replace_existing=True,
         misfire_grace_time=3600,
     )
-    s.add_job(
-        check_and_snapshot,
-        "interval",
-        hours=1,
-        id="check_and_snapshot",
-        replace_existing=True,
-        misfire_grace_time=600,
-    )
+    # check_and_snapshot (pre-match simulations) intentionally removed —
+    # simulations are run on-demand from the UI only.
     # FIX 3: reconcile abandoned RQ jobs every 5 minutes
     s.add_job(
         reconcile_jobs,

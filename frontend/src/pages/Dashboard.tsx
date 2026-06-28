@@ -3,6 +3,7 @@ import {
   useAdminReset,
   useModelsComparison,
   useOddsValue,
+  useRunSimulation,
   useSimulations,
   useTournamentNarrative,
   useTriggerDailyUpdate,
@@ -32,6 +33,7 @@ export default function Dashboard() {
   const dailyUpdate = useTriggerDailyUpdate()
   const adminReset = useAdminReset()
   const { data: authData } = useAuth()
+  const runSim = useRunSimulation()
 
   const { data: oddsData } = useOddsValue()
   const top3Value: OddsValueTeam[] = [...(oddsData?.teams ?? [])]
@@ -42,6 +44,8 @@ export default function Dashboard() {
   const [showAnalysis, setShowAnalysis] = useState(false)
   const [showResetModal, setShowResetModal] = useState(false)
   const [resetMsg, setResetMsg] = useState<string | null>(null)
+  const [simMsg, setSimMsg] = useState<string | null>(null)
+  const [pendingSim, setPendingSim] = useState<string | null>(null)
   const runId = sim?.run.id ?? null
   const tournamentNarrative = useTournamentNarrative(showAnalysis ? runId : null)
 
@@ -55,6 +59,21 @@ export default function Dashboard() {
 
   const noToken = authData?.authenticated !== true
   const isAdmin = !noToken
+
+  function handleRunSim(modelName: string) {
+    setPendingSim(modelName)
+    setSimMsg(null)
+    runSim.mutate({ model_name: modelName }, {
+      onSuccess: () => {
+        setSimMsg(`Simulación "${modelName}" encolada correctamente.`)
+        setPendingSim(null)
+      },
+      onError: (err) => {
+        setSimMsg(`Error: ${err.message}`)
+        setPendingSim(null)
+      },
+    })
+  }
 
   function handleReset() {
     setResetMsg('Reseteando base de datos…')
@@ -122,7 +141,7 @@ export default function Dashboard() {
             <button
               onClick={() => dailyUpdate.mutate()}
               disabled={dailyUpdate.isPending || noToken}
-              title={noToken ? 'Inicia sesión para acciones admin' : undefined}
+              title={noToken ? 'Inicia sesión para acciones admin' : 'Actualiza resultados recientes, ELO, noticias y sanciones (sin simulaciones)'}
               className="rounded bg-gray-700 px-4 py-2 text-sm text-gray-200 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
             >
               {dailyUpdate.isPending ? 'Encolando…' : 'Daily Update'}
@@ -130,7 +149,7 @@ export default function Dashboard() {
             <button
               onClick={() => fullRefresh.mutate()}
               disabled={fullRefresh.isPending || noToken}
-              title={noToken ? 'Inicia sesión para acciones admin' : undefined}
+              title={noToken ? 'Inicia sesión para acciones admin' : 'Actualiza todos los datos históricos, ELO y modelos ML (sin simulaciones)'}
               className="rounded bg-blue-700 px-4 py-2 text-sm text-white hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
             >
               {fullRefresh.isPending ? 'Encolando…' : 'Full Refresh'}
@@ -147,6 +166,37 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Simulations section */}
+      {isAdmin && (
+        <div className="rounded-lg border border-gray-700 bg-gray-900/50 p-4 space-y-3">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-200 uppercase tracking-wider">
+              Simulaciones Monte Carlo
+            </h3>
+            <p className="mt-1 text-xs text-gray-500">
+              Corre las simulaciones después de actualizar los datos con Full Refresh o Daily Update.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {(['baseline', 'elo', 'poisson', 'poisson_context', 'ml_calibrated', 'consensus'] as const).map((model) => (
+              <button
+                key={model}
+                onClick={() => handleRunSim(model)}
+                disabled={pendingSim !== null}
+                className="rounded bg-indigo-800 px-3 py-1.5 text-xs text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed font-mono"
+              >
+                {pendingSim === model ? 'Encolando…' : model}
+              </button>
+            ))}
+          </div>
+          {simMsg && (
+            <p className={`text-xs ${simMsg.startsWith('Error') ? 'text-red-400' : 'text-green-400'}`}>
+              {simMsg}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">

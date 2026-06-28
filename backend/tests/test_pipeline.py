@@ -343,11 +343,13 @@ class TestFullRefreshPipeline:
         result = run_full_refresh(db_pipe, job_id)
 
         assert result is not None
-        assert "simulations" in result
-        assert "snapshot" in result
+        assert "ml_training" in result
+        # Simulations are intentionally excluded from full_refresh (run from UI)
+        assert "simulations" not in result
+        assert "snapshot" not in result
 
     def test_news_failure_is_tolerated(self, db_pipe, tmp_path, monkeypatch):
-        """If news analysis raises, the pipeline should continue."""
+        """If news analysis raises, the pipeline should continue to ML training."""
         monkeypatch.setattr("app.core.config.settings.ML_MODELS_PATH", str(tmp_path))
         monkeypatch.setattr("app.core.config.settings.DATA_EXPORTS_PATH", str(tmp_path))
         monkeypatch.setattr("app.core.config.settings.MONTECARLO_ITERATIONS", 20)
@@ -384,12 +386,10 @@ class TestFullRefreshPipeline:
         result = run_full_refresh(db_pipe, job_id)
 
         assert result["news"]["status"] == "failed"
-        assert "simulations" in result  # Pipeline continued after news failure
+        assert "ml_training" in result  # Pipeline continued after news failure
 
-    def test_ml_failure_is_tolerated_and_base_models_run(
-        self, db_pipe, tmp_path, monkeypatch
-    ):
-        """If ML training fails, base model simulations should still complete."""
+    def test_ml_failure_is_tolerated(self, db_pipe, tmp_path, monkeypatch):
+        """If ML training fails, the pipeline should complete and record the failure."""
         monkeypatch.setattr("app.core.config.settings.ML_MODELS_PATH", str(tmp_path))
         monkeypatch.setattr("app.core.config.settings.DATA_EXPORTS_PATH", str(tmp_path))
         monkeypatch.setattr("app.core.config.settings.MONTECARLO_ITERATIONS", 20)
@@ -430,12 +430,8 @@ class TestFullRefreshPipeline:
         result = run_full_refresh(db_pipe, job_id)
 
         assert result["ml_training"]["status"] == "failed"
-        # Pipeline must reach the simulation step (results present for each model)
-        # Simulations may fail in tests due to missing WC2026 teams in test DB,
-        # but the pipeline should not abort — all models must be attempted.
-        sims = result["simulations"]
-        for base_model in ["baseline", "elo", "poisson"]:
-            assert base_model in sims, f"Model {base_model} not in simulation results"
+        # Simulations are not run by full_refresh; run on-demand from the UI
+        assert "simulations" not in result
 
 
 # ===========================================================================

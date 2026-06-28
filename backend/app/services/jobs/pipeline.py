@@ -81,7 +81,7 @@ def run_full_refresh(
     job_id: str,
     cancel_check: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
-    """Full data refresh pipeline.
+    """Full data refresh pipeline — loads and processes data only.
 
     Steps (with progress milestones):
       1. CSV ingestion        0.05  — mandatory
@@ -91,12 +91,12 @@ def run_full_refresh(
       5. Team strengths       0.35  — mandatory
       6. News analysis        0.45  — fault-tolerant
       7. Backtesting          0.60  — mandatory
-      8. ML training          0.75  — fault-tolerant
-      9. Monte Carlo sims     0.95  — mandatory
-     10. Snapshot             1.00  — mandatory
+      8. ML training          1.00  — fault-tolerant
+
+    Monte Carlo simulations are intentionally excluded — run them
+    manually from the UI once data is ready.
     """
     from app.core.config import settings
-    from app.db.repositories.simulations import SimulationRepository
     from app.services.evaluation.backtesting import run_backtesting
     from app.services.features.strengths import calculate_team_strengths
     from app.services.ingestion.csv_loader import (
@@ -110,7 +110,6 @@ def run_full_refresh(
     from app.services.ingestion.elo_scraper import ingest_elo_ratings
     from app.services.ml.trainer import train_ml_model
     from app.services.news.availability import run_news_analysis
-    from app.services.simulation.monte_carlo import run_monte_carlo
 
     job_repo = JobRepository(db_conn)
     summary: dict[str, Any] = {}
@@ -130,7 +129,7 @@ def run_full_refresh(
     # ------------------------------------------------------------------
     if cancel_check:
         cancel_check()
-    with _StepTimer("CSV ingestion", 1, 10):
+    with _StepTimer("CSV ingestion", 1, 8):
         teams    = load_teams_from_csv()
         groups   = load_groups_from_csv()
         fixtures = load_fixtures_from_csv()
@@ -155,19 +154,19 @@ def run_full_refresh(
     from pathlib import Path as _Path
     if _Path(settings.STATSBOMB_DATA_PATH).exists():
         try:
-            logger.info("[Pipeline] Paso 1b/10: Cargando datos StatsBomb")
+            logger.info("[Pipeline] Paso 1b/8: Cargando datos StatsBomb")
             from app.services.ingestion.statsbomb_loader import load_all_wc_matches
             sb_count = load_all_wc_matches(db_conn, settings.STATSBOMB_DATA_PATH)
             summary["statsbomb"] = {"matches": sb_count}
-            logger.info("[Pipeline] Paso 1b/10: %d partidos StatsBomb cargados", sb_count)
+            logger.info("[Pipeline] Paso 1b/8: %d partidos StatsBomb cargados", sb_count)
         except InterruptedError:
             raise
         except Exception as exc:
-            logger.warning("[Pipeline] Paso 1b/10: StatsBomb falló (no fatal): %s", exc)
+            logger.warning("[Pipeline] Paso 1b/8: StatsBomb falló (no fatal): %s", exc)
             summary["statsbomb"] = {"status": "failed", "error": str(exc)}
     else:
         logger.warning(
-            "[Pipeline] Paso 1b/10: STATSBOMB_DATA_PATH no encontrado, saltando (%s)",
+            "[Pipeline] Paso 1b/8: STATSBOMB_DATA_PATH no encontrado, saltando (%s)",
             settings.STATSBOMB_DATA_PATH,
         )
         summary["statsbomb"] = {"status": "skipped"}
@@ -177,7 +176,7 @@ def run_full_refresh(
     # Step 2 — ELO scraping (fault-tolerant)
     # ------------------------------------------------------------------
     try:
-        with _StepTimer("ELO scraping", 2, 10):
+        with _StepTimer("ELO scraping", 2, 8):
             summary["elo_scrape"] = {"records": ingest_elo_ratings()}
     except InterruptedError:
         raise
@@ -190,7 +189,7 @@ def run_full_refresh(
     # Step 3 — Own ELO recalculation (fault-tolerant)
     # ------------------------------------------------------------------
     try:
-        with _StepTimer("Own ELO recalculation", 3, 10):
+        with _StepTimer("Own ELO recalculation", 3, 8):
             from app.services.elo.calculator import recalculate_all_elos
             summary["elo_recalc"] = recalculate_all_elos(db_conn)
             db_conn.commit()
@@ -205,7 +204,7 @@ def run_full_refresh(
     # Step 4 — API Football (fault-tolerant)
     # ------------------------------------------------------------------
     try:
-        with _StepTimer("API Football", 4, 10):
+        with _StepTimer("API Football", 4, 8):
             from app.services.ingestion.api_football import ingest_api_fixtures
             summary["api_football"] = {"records": ingest_api_fixtures(conn=db_conn)}
     except InterruptedError:
@@ -218,7 +217,7 @@ def run_full_refresh(
     # ------------------------------------------------------------------
     # Step 4 — Team strengths (mandatory)
     # ------------------------------------------------------------------
-    with _StepTimer("Team strengths", 5, 10):
+    with _StepTimer("Team strengths", 5, 8):
         strengths = calculate_team_strengths(db_conn)
         summary["features"] = {"n_teams": len(strengths)}
     _progress(0.35)
@@ -227,7 +226,7 @@ def run_full_refresh(
     # Step 5 — News / injuries (fault-tolerant)
     # ------------------------------------------------------------------
     try:
-        with _StepTimer("News analysis", 6, 10):
+        with _StepTimer("News analysis", 6, 8):
             summary["news"] = run_news_analysis(db_conn)
     except InterruptedError:
         raise
@@ -239,7 +238,7 @@ def run_full_refresh(
     # ------------------------------------------------------------------
     # Step 6 — Backtesting (mandatory) — últimos 2 años, máx 500 partidos
     # ------------------------------------------------------------------
-    with _StepTimer("Backtesting", 7, 10):
+    with _StepTimer("Backtesting", 7, 8):
         summary["backtesting"] = run_backtesting(
             db_conn,
             models=_ALL_MODELS,
@@ -252,53 +251,19 @@ def run_full_refresh(
     # Step 7 — ML training (fault-tolerant)
     # ------------------------------------------------------------------
     try:
-        with _StepTimer("ML training", 8, 10):
+        with _StepTimer("ML training", 8, 8):
             summary["ml_training"] = train_ml_model(db_conn)
     except InterruptedError:
         raise
     except Exception as exc:
         logger.warning("ML training failed (non-fatal): %s", exc)
         summary["ml_training"] = {"status": "failed", "error": str(exc)}
-    _progress(0.75)
-
-    # ------------------------------------------------------------------
-    # Step 8 — Monte Carlo for all models (mandatory)
-    # ------------------------------------------------------------------
-    sim_run_ids: dict[str, str] = {}
-    with _StepTimer("Monte Carlo simulations", 9, 10):
-        for model_name in _ALL_MODELS:
-            try:
-                run_id = run_monte_carlo(
-                    model_name=model_name,
-                    conn=db_conn,
-                    iterations=settings.MONTECARLO_ITERATIONS,
-                    seed=settings.MONTECARLO_SEED,
-                )
-                sim_run_ids[model_name] = run_id
-            except Exception as exc:
-                logger.warning("Simulation for %s failed: %s", model_name, exc)
-                sim_run_ids[model_name] = f"failed:{exc}"
-    summary["simulations"] = sim_run_ids
-    _progress(0.95)
-
-    # ------------------------------------------------------------------
-    # Step 9 — Snapshot (mandatory)
-    # ------------------------------------------------------------------
-    with _StepTimer("Snapshot", 10, 10):
-        best_run_id = next(
-            (rid for rid in sim_run_ids.values() if not rid.startswith("failed:")),
-            None,
-        )
-        snap_id = SimulationRepository(db_conn).create_snapshot({
-            "label":             f"full-refresh-{started[:10]}",
-            "description":       "Auto-snapshot after full refresh",
-            "trigger":           "full_refresh",
-            "simulation_run_id": best_run_id,
-        })
-        db_conn.commit()
-        summary["snapshot"] = {"id": snap_id}
     _progress(1.0)
 
+    logger.info(
+        "[Pipeline] Full Refresh completado. Datos listos. "
+        "Lanza las simulaciones manualmente desde la UI."
+    )
     logger.info("Full refresh complete: %s", {k: type(v).__name__ for k, v in summary.items()})
     return summary
 
@@ -311,20 +276,20 @@ def run_daily_update(
     db_conn: sqlite3.Connection,
     job_id: str,
 ) -> dict[str, Any]:
-    """Incremental daily update pipeline.
+    """Incremental daily update pipeline — data only, no simulations.
 
     Steps:
       1. API Football incremental (últimos 7 días)  — fault-tolerant
-      2. News analysis                               — fault-tolerant
-      3. Recalculate team strengths                  — mandatory
-      4. Monte Carlo for base models                 — mandatory
-      5. ML simulation if active model exists        — fault-tolerant
+      2. Suspensions / bookings / player form        — fault-tolerant
+      3. Incremental ELO update                      — fault-tolerant
+      4. News purge + analysis                       — fault-tolerant
+      5. Recalculate team strengths                  — mandatory
+
+    Monte Carlo simulations are intentionally excluded — run them
+    manually from the UI once data is ready.
     """
-    from app.core.config import settings
-    from app.db.repositories.ml import MLRepository
     from app.services.features.strengths import calculate_team_strengths
     from app.services.news.availability import run_news_analysis
-    from app.services.simulation.monte_carlo import run_monte_carlo
 
     job_repo = JobRepository(db_conn)
     summary: dict[str, Any] = {}
@@ -394,38 +359,6 @@ def run_daily_update(
     # Step 3 — Team strengths
     strengths = calculate_team_strengths(db_conn)
     summary["features"] = {"n_teams": len(strengths)}
-    _progress(0.55)
-
-    # Step 4 — Simulations for base models
-    sim_run_ids: dict[str, str] = {}
-    for model_name in _BASE_MODELS:
-        try:
-            run_id = run_monte_carlo(
-                model_name=model_name,
-                conn=db_conn,
-                iterations=settings.MONTECARLO_ITERATIONS,
-                seed=settings.MONTECARLO_SEED,
-            )
-            sim_run_ids[model_name] = run_id
-        except Exception as exc:
-            logger.warning("Simulation for %s failed: %s", model_name, exc)
-            sim_run_ids[model_name] = f"failed:{exc}"
-    summary["simulations"] = sim_run_ids
-    _progress(0.90)
-
-    # Step 5 — ML calibrated simulation (if active model exists)
-    try:
-        if MLRepository(db_conn).get_best_model() is not None:
-            run_id = run_monte_carlo(
-                model_name="ml_calibrated",
-                conn=db_conn,
-                iterations=settings.MONTECARLO_ITERATIONS,
-                seed=settings.MONTECARLO_SEED,
-            )
-            sim_run_ids["ml_calibrated"] = run_id
-    except Exception as exc:
-        logger.warning("ML calibrated simulation failed: %s", exc)
-        sim_run_ids["ml_calibrated"] = f"failed:{exc}"
     _progress(1.0)
 
     return summary
