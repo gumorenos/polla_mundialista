@@ -92,11 +92,21 @@ def get_team_form_adjustment(
     try:
         row = conn.execute(
             """
-            SELECT player_name
-            FROM sb_player_stats
-            WHERE team_id = ?
-            GROUP BY player_name
-            ORDER BY SUM(xg) DESC
+            SELECT sps.player_name
+            FROM sb_player_stats sps
+            WHERE sps.team_id = ?
+              AND (
+                  EXISTS (
+                      SELECT 1 FROM wc2026_squads ws
+                      WHERE ws.team_id = sps.team_id
+                        AND ws.player_name = sps.player_name
+                  )
+                  OR NOT EXISTS (
+                      SELECT 1 FROM wc2026_squads WHERE team_id = sps.team_id
+                  )
+              )
+            GROUP BY sps.player_name
+            ORDER BY SUM(sps.xg) DESC
             LIMIT 1
             """,
             (team_id,),

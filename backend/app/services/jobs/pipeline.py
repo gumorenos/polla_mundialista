@@ -173,6 +173,19 @@ def run_full_refresh(
     _progress(0.08)
 
     # ------------------------------------------------------------------
+    # Step 1c — WC2026 squads (fault-tolerant, optional)
+    # ------------------------------------------------------------------
+    try:
+        from app.services.ingestion.api_football import fetch_wc2026_squads
+        squad_count = fetch_wc2026_squads(db_conn)
+        summary["wc2026_squads"] = {"players": squad_count}
+    except InterruptedError:
+        raise
+    except Exception as exc:
+        logger.warning("[Pipeline] Paso 1c/8: WC2026 squads falló (no fatal): %s", exc)
+        summary["wc2026_squads"] = {"status": "failed", "error": str(exc)}
+
+    # ------------------------------------------------------------------
     # Step 2 — ELO scraping (fault-tolerant)
     # ------------------------------------------------------------------
     try:

@@ -704,6 +704,28 @@ def _m016_team_strengths_unique(conn: sqlite3.Connection) -> None:
     )
 
 
+def _m018_wc2026_squads(conn: sqlite3.Connection) -> None:
+    """WC2026 squad table — used to filter top-xG players to actual convocados."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS wc2026_squads (
+            id            TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+            team_id       TEXT NOT NULL REFERENCES teams(id),
+            player_name   TEXT NOT NULL,
+            position      TEXT,
+            jersey_number INTEGER,
+            source        TEXT DEFAULT 'api_football',
+            fetched_at    TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(team_id, player_name)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_wc2026_squads_team "
+        "ON wc2026_squads(team_id)"
+    )
+
+
 _MIGRATIONS = [
     _m001_create_all_tables,
     _m002_jobs_extend_schema,
@@ -722,6 +744,7 @@ _MIGRATIONS = [
     _m015_venues,
     _m016_team_strengths_unique,
     _m017_ratings_unique,
+    _m018_wc2026_squads,
 ]
 
 

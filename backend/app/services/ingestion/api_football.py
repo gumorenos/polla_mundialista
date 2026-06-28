@@ -229,3 +229,55 @@ def ingest_api_fixtures(
         source, n, time.perf_counter() - t0,
     )
     return n
+
+
+def fetch_wc2026_squads(conn: sqlite3.Connection) -> int:
+    """Fetch WC2026 squad lists from API-Football and persist to wc2026_squads.
+
+    Calls /players/squads for each WC2026 team (league=1, season=2026).
+    Uses INSERT OR IGNORE so repeated runs are safe.
+    Returns 0 and logs WARNING if API key is missing or the call fails.
+    """
+    if not settings.API_FOOTBALL_KEY:
+        logger.warning("fetch_wc2026_squads: API_FOOTBALL_KEY not configured — skipping")
+        return 0
+
+    from app.db.repositories.teams import TeamRepository
+    team_repo = TeamRepository(conn)
+    teams = conn.execute("SELECT id FROM teams").fetchall()
+    if not teams:
+        logger.warning("fetch_wc2026_squads: no teams in DB — skipping")
+        return 0
+
+    total = 0
+    for team_row in teams:
+        team_id = team_row["id"]
+        try:
+            data = _get("players/squads", {"team": team_id})
+            response = data.get("response", [])
+            for squad_block in response:
+                for player in squad_block.get("players", []):
+                    name = (player.get("name") or "").strip()
+                    position = (player.get("position") or "").strip() or None
+                    number = player.get("number")
+                    if not name:
+                        continue
+                    try:
+                        conn.execute(
+                            """
+                            INSERT OR IGNORE INTO wc2026_squads
+                                (team_id, player_name, position, jersey_number, source)
+                            VALUES (?, ?, ?, ?, 'api_football')
+                            """,
+                            (team_id, name, position, number),
+                        )
+                        total += 1
+                    except Exception as exc:
+                        logger.debug("fetch_wc2026_squads: insert failed for %s/%s: %s", team_id, name, exc)
+        except Exception as exc:
+            logger.warning("fetch_wc2026_squads: failed for team %s: %s", team_id, exc)
+
+    if total > 0:
+        conn.commit()
+    logger.info("fetch_wc2026_squads: %d players inserted", total)
+    return total
