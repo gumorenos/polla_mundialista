@@ -126,6 +126,68 @@ def check_and_snapshot() -> None:
         logger.exception("check_and_snapshot failed")
 
 
+def enqueue_daily_simulations() -> None:
+    """Enqueue Monte Carlo simulations for all 5 models after the daily full_refresh.
+
+    Called at 4:30am — 30 min after full_refresh — giving the refresh time to
+    complete on ARM64. Each model is dispatched as an independent RQ job so a
+    failure in one (e.g. ml_calibrated with no trained model) does not block the
+    others.
+    """
+    from redis import Redis
+    from rq import Queue
+
+    from app.core.config import settings
+    from app.db.connection import db_transaction
+    from app.db.repositories.jobs import JobRepository
+    from app.workers.tasks import run_simulation_task
+
+    _MODELS = ["baseline", "elo", "poisson", "poisson_context", "ml_calibrated"]
+
+    try:
+        redis_conn = Redis.from_url(settings.REDIS_URL)
+        q = Queue("long", connection=redis_conn)
+    except Exception:
+        logger.exception("enqueue_daily_simulations: could not connect to Redis")
+        return
+
+    for model_name in _MODELS:
+        try:
+            with db_transaction() as conn:
+                job_id = JobRepository(conn).create({
+                    "job_type": "simulation",
+                    "status": "enqueued",
+                })
+                conn.commit()
+
+            rq_job = q.enqueue(
+                run_simulation_task,
+                model_name,
+                settings.MONTECARLO_ITERATIONS,
+                settings.MONTECARLO_SEED,
+                job_id,
+                job_timeout=settings.RQ_LONG_TIMEOUT,
+            )
+            try:
+                with db_transaction() as conn:
+                    JobRepository(conn).update_rq_job_id(job_id, rq_job.id)
+                    conn.commit()
+            except Exception:
+                logger.exception(
+                    "enqueue_daily_simulations: rq_job_id update failed — db_job=%s rq=%s",
+                    job_id, rq_job.id,
+                )
+            logger.info(
+                "Daily simulation enqueued — model=%s rq=%s db_job=%s",
+                model_name, rq_job.id, job_id,
+            )
+        except Exception:
+            logger.warning(
+                "enqueue_daily_simulations: failed to enqueue model=%s (continuing)",
+                model_name, exc_info=True,
+            )
+
+
 def fetch_odds_job() -> None:
     """Fetch market odds from The Odds API (runs directly, no RQ queue)."""
     from app.services.ingestion.odds_api import fetch_and_store_odds
