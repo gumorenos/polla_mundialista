@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useJobs, useCancelJob } from '../api/hooks'
+import { useJobs, useCancelJob, usePurgeJobs, useDeleteJobRecord } from '../api/hooks'
 import { useAuth } from '../hooks/useAuth'
 import type { JobRecord } from '../types'
 
@@ -113,6 +113,8 @@ function jobDuration(job: JobRecord, now: number): string {
 export default function Jobs() {
   const { data, isLoading, error } = useJobs()
   const cancelJob = useCancelJob()
+  const purgeJobs = usePurgeJobs()
+  const deleteJobRecord = useDeleteJobRecord()
   const { data: authData } = useAuth()
   const isAdmin = authData?.authenticated === true
   const [now, setNow] = useState(() => Date.now())
@@ -123,18 +125,41 @@ export default function Jobs() {
     return () => clearInterval(id)
   }, [])
 
+  const finishedCount = data
+    ? data.filter((j) => ['completed', 'failed', 'cancelled'].includes(j.status)).length
+    : 0
+
   function handleCancel(job: JobRecord) {
     if (!window.confirm(`¿Cancelar el job "${job.job_type}" (${job.id.slice(0, 8)}…)?`)) return
     cancelJob.mutate(job.id)
   }
 
+  function handleDelete(job: JobRecord) {
+    if (!window.confirm(`¿Borrar este registro de job?`)) return
+    deleteJobRecord.mutate(job.id)
+  }
+
   return (
     <div className="p-4 sm:p-8 space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-white">Background Jobs</h2>
-        <p className="mt-1 text-sm text-gray-400">
-          Estado de tareas RQ — lista cada 5 s, tiempo transcurrido cada 1 s
-        </p>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-white">Background Jobs</h2>
+          <p className="mt-1 text-sm text-gray-400">
+            Estado de tareas RQ — lista cada 5 s, tiempo transcurrido cada 1 s
+          </p>
+        </div>
+        {isAdmin && finishedCount > 0 && (
+          <button
+            onClick={() => {
+              if (!window.confirm(`¿Borrar ${finishedCount} job(s) finalizado(s)? Esta acción no se puede deshacer.`)) return
+              purgeJobs.mutate()
+            }}
+            disabled={purgeJobs.isPending}
+            className="rounded px-3 py-1.5 text-xs font-medium bg-gray-800 text-gray-300 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors border border-gray-700 self-start"
+          >
+            {purgeJobs.isPending ? 'Borrando…' : `Limpiar finalizados (${finishedCount})`}
+          </button>
+        )}
       </div>
 
       {isLoading && <p className="text-gray-400">Cargando jobs…</p>}
@@ -201,7 +226,7 @@ export default function Jobs() {
                       <span className="text-gray-600">—</span>
                     )}
                   </td>
-                  <td className="px-4 py-2">
+                  <td className="px-4 py-2 whitespace-nowrap">
                     {isAdmin && CANCELLABLE.includes(job.status) && (
                       <button
                         onClick={() => handleCancel(job)}
@@ -209,6 +234,16 @@ export default function Jobs() {
                         className="rounded px-2 py-1 text-xs font-medium bg-red-900 text-red-300 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                       >
                         Cancelar
+                      </button>
+                    )}
+                    {isAdmin && ['completed', 'failed', 'cancelled'].includes(job.status) && (
+                      <button
+                        onClick={() => handleDelete(job)}
+                        disabled={deleteJobRecord.isPending}
+                        className="rounded px-2 py-1 text-xs font-medium bg-gray-800 text-gray-500 hover:bg-gray-700 hover:text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors ml-1"
+                        title="Borrar registro"
+                      >
+                        ✕
                       </button>
                     )}
                   </td>

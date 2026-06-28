@@ -176,6 +176,22 @@ export function useCancelJob() {
   })
 }
 
+export function usePurgeJobs() {
+  const qc = useQueryClient()
+  return useMutation<{ deleted: number }, Error, void>({
+    mutationFn: () => api.post('/api/jobs/purge', {}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['jobs'] }),
+  })
+}
+
+export function useDeleteJobRecord() {
+  const qc = useQueryClient()
+  return useMutation<{ deleted: boolean; job_id: string }, Error, string>({
+    mutationFn: (jobId) => api.delete(`/api/jobs/${jobId}/record`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['jobs'] }),
+  })
+}
+
 export function useNews(params?: { team_id?: string; classification?: string; limit?: number }) {
   const qs = new URLSearchParams()
   if (params?.team_id) qs.set('team_id', params.team_id)

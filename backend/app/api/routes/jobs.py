@@ -54,6 +54,16 @@ def list_jobs(
     return jobs if is_admin else [_sanitize(j) for j in jobs]
 
 
+@router.post("/purge", dependencies=[Depends(require_admin)])
+@limiter.limit(settings.RATE_LIMIT_ADMIN)
+def purge_finished_jobs(request: Request) -> dict[str, Any]:
+    """Delete all completed, failed, and cancelled job records."""
+    with db_transaction() as conn:
+        count = JobRepository(conn).purge_finished()
+    logger.info("Purged %d finished job records by admin", count)
+    return {"deleted": count}
+
+
 @router.get("/{job_id}")
 def get_job(
     job_id: str,
@@ -119,6 +129,29 @@ def cancel_job(request: Request, job_id: str) -> dict[str, Any]:
 
     logger.info("Job %s cancel requested (was: %s) by admin", job_id, job.get("status"))
     return {"cancelled": True, "job_id": job_id}
+
+
+@router.delete("/{job_id}/record", dependencies=[Depends(require_admin)])
+@limiter.limit(settings.RATE_LIMIT_ADMIN)
+def delete_job_record(request: Request, job_id: str) -> dict[str, Any]:
+    """Permanently delete a finished job record (completed/failed/cancelled only)."""
+    with db_transaction() as conn:
+        job = JobRepository(conn).get_by_id(job_id)
+        if not job:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Job '{job_id}' not found",
+            )
+        if job["status"] not in ("completed", "failed", "cancelled"):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Cannot delete job in state '{job['status']}'. Only terminal jobs can be deleted.",
+            )
+        deleted = JobRepository(conn).delete_one(job_id)
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Job could not be deleted")
+    logger.info("Job record %s deleted by admin", job_id)
+    return {"deleted": True, "job_id": job_id}
 
 
 @router.post("/{job_id}/force-cancel", dependencies=[Depends(require_admin)])

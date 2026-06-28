@@ -111,6 +111,33 @@ class JobRepository:
         )
         return cur.rowcount > 0
 
+    def delete_one(self, job_id: str) -> bool:
+        """Delete a single job record (terminal states only). Returns True if deleted."""
+        self._c.execute("DELETE FROM job_logs WHERE job_id = ?", (job_id,))
+        cur = self._c.execute(
+            """
+            DELETE FROM jobs
+            WHERE id = ? AND status IN ('completed', 'failed', 'cancelled')
+            """,
+            (job_id,),
+        )
+        return cur.rowcount > 0
+
+    def purge_finished(self, statuses: list[str] | None = None) -> int:
+        """Delete all jobs in terminal states. Returns count of deleted rows."""
+        terminal = statuses or ["completed", "failed", "cancelled"]
+        placeholders = ",".join("?" * len(terminal))
+        self._c.execute(
+            f"DELETE FROM job_logs WHERE job_id IN "
+            f"(SELECT id FROM jobs WHERE status IN ({placeholders}))",
+            terminal,
+        )
+        cur = self._c.execute(
+            f"DELETE FROM jobs WHERE status IN ({placeholders})",
+            terminal,
+        )
+        return cur.rowcount
+
     def force_cancel(self, job_id: str) -> None:
         """Immediately set a job to 'cancelled' regardless of its current state.
 
