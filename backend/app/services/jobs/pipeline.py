@@ -318,6 +318,16 @@ def run_daily_update(
     except Exception as exc:
         logger.warning("API Football incremental failed: %s", exc)
         summary["api_football"] = {"status": "failed", "error": str(exc)}
+
+    # Step 1a — WC2026 standings (fault-tolerant)
+    try:
+        from app.services.ingestion.api_football import fetch_wc2026_standings
+        n = fetch_wc2026_standings(db_conn)
+        logger.info("pipeline: standings actualizados — %d equipos", n)
+        summary["wc2026_standings"] = {"teams": n}
+    except Exception as exc:
+        logger.warning("pipeline: fetch_wc2026_standings falló: %s", exc)
+        summary["wc2026_standings"] = {"status": "failed", "error": str(exc)}
     _progress(0.15)
 
     # Step 1c — WC2026 bookings / suspensions (fault-tolerant)

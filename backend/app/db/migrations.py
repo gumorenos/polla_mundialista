@@ -704,6 +704,38 @@ def _m016_team_strengths_unique(conn: sqlite3.Connection) -> None:
     )
 
 
+def _m020_wc2026_standings(conn: sqlite3.Connection) -> None:
+    """WC2026 group standings — tracks team status (active/qualified/eliminated)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS wc2026_standings (
+            id            TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+            team_id       TEXT NOT NULL REFERENCES teams(id),
+            group_id      TEXT NOT NULL,
+            position      INTEGER NOT NULL,
+            played        INTEGER DEFAULT 0,
+            won           INTEGER DEFAULT 0,
+            drawn         INTEGER DEFAULT 0,
+            lost          INTEGER DEFAULT 0,
+            goals_for     INTEGER DEFAULT 0,
+            goals_against INTEGER DEFAULT 0,
+            points        INTEGER DEFAULT 0,
+            status        TEXT DEFAULT 'active',
+            fetched_at    TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(team_id)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_wc2026_standings_group "
+        "ON wc2026_standings(group_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_wc2026_standings_status "
+        "ON wc2026_standings(status)"
+    )
+
+
 def _m019_jobs_cancelling_requested_at(conn: sqlite3.Connection) -> None:
     """Add cancelling_requested_at to track when cancel was requested.
 
@@ -755,6 +787,7 @@ _MIGRATIONS = [
     _m017_ratings_unique,
     _m018_wc2026_squads,
     _m019_jobs_cancelling_requested_at,
+    _m020_wc2026_standings,
 ]
 
 

@@ -300,13 +300,20 @@ def _init_model(model_name: str, conn: sqlite3.Connection) -> object:
 
 
 def _load_groups(conn: sqlite3.Connection) -> dict[str, list[str]]:
-    """Load group composition from DB; fall back to hard-coded constants only if empty."""
+    """Load group composition from DB; fall back to hard-coded constants only if empty.
+
+    Excludes teams marked as 'eliminated' in wc2026_standings (if table has data).
+    When standings table is empty (pre-tournament), all teams are included.
+    """
     try:
         rows = conn.execute(
             """
             SELECT g.id AS group_id, gt.team_id
             FROM groups g
             JOIN group_teams gt ON g.id = gt.group_id
+            WHERE gt.team_id NOT IN (
+                SELECT team_id FROM wc2026_standings WHERE status = 'eliminated'
+            )
             ORDER BY g.id, gt.position
             """
         ).fetchall()
@@ -322,7 +329,9 @@ def _load_groups(conn: sqlite3.Connection) -> dict[str, list[str]]:
     for row in rows:
         gid = row["group_id"]
         groups.setdefault(gid, []).append(row["team_id"])
-    logger.info("_load_groups: loaded %d groups from DB", len(groups))
+
+    total_teams = sum(len(v) for v in groups.values())
+    logger.info("_load_groups: loaded %d groups, %d active teams from DB", len(groups), total_teams)
     return groups
 
 

@@ -231,6 +231,83 @@ def ingest_api_fixtures(
     return n
 
 
+def fetch_wc2026_standings(conn: sqlite3.Connection) -> int:
+    """Fetch WC2026 group standings and persist to wc2026_standings table.
+
+    Returns number of team records upserted. Returns 0 if API unavailable.
+    """
+    if not settings.API_FOOTBALL_KEY:
+        logger.warning("fetch_wc2026_standings: API_FOOTBALL_KEY not set — skipping")
+        return 0
+
+    try:
+        data = _get("standings", {
+            "league": _LEAGUE_WC2026,
+            "season": _SEASON_WC2026,
+        })
+    except Exception as exc:
+        logger.warning("fetch_wc2026_standings: API call failed: %s", exc)
+        return 0
+
+    try:
+        standings_groups = data["response"][0]["league"]["standings"]
+    except (KeyError, IndexError, TypeError) as exc:
+        logger.warning("fetch_wc2026_standings: unexpected response structure: %s", exc)
+        return 0
+
+    upserted = 0
+    for group in standings_groups:
+        group_name = group[0].get("group", "") if group else ""
+        group_id = group_name.replace("Group ", "").strip() or "?"
+
+        for entry in group:
+            api_team_id = str(entry["team"]["id"])
+            team_name   = entry["team"]["name"]
+
+            internal_id = normalize_team_id(api_team_id, team_name, conn)
+            if not internal_id:
+                logger.debug("fetch_wc2026_standings: no match for %s", team_name)
+                continue
+
+            description = (entry.get("description") or "").lower()
+            if "eliminated" in description or "relegated" in description:
+                status = "eliminated"
+            elif "qualified" in description or "next stage" in description:
+                status = "qualified"
+            else:
+                status = "active"
+
+            stats = entry.get("all", {})
+            goals = stats.get("goals", {})
+
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO wc2026_standings
+                    (team_id, group_id, position, played, won, drawn, lost,
+                     goals_for, goals_against, points, status, fetched_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                """,
+                (
+                    internal_id,
+                    group_id,
+                    int(entry.get("rank", 0)),
+                    int(stats.get("played", 0)),
+                    int(stats.get("win",   0)),
+                    int(stats.get("draw",  0)),
+                    int(stats.get("lose",  0)),
+                    int(goals.get("for",     0)),
+                    int(goals.get("against", 0)),
+                    int(entry.get("points",  0)),
+                    status,
+                ),
+            )
+            upserted += 1
+
+    conn.commit()
+    logger.info("fetch_wc2026_standings: upserted %d team standings", upserted)
+    return upserted
+
+
 def fetch_wc2026_squads(conn: sqlite3.Connection) -> int:
     """Fetch WC2026 squad lists from API-Football and persist to wc2026_squads.
 
