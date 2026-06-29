@@ -211,10 +211,12 @@ function ConsensusWeightsChart() {
 // Favorite evolution chart (Parte 3)
 // ---------------------------------------------------------------------------
 
-const FAVORITE_MODELS = ['poisson', 'poisson_context', 'ml_calibrated', 'consensus']
+const FAVORITE_MODELS = ['baseline', 'elo', 'poisson', 'poisson_context', 'ml_calibrated', 'consensus']
 
 const FAVORITE_MODEL_COLORS: Record<string, string> = {
-  poisson:         '#3b82f6',
+  baseline:        '#6b7280',
+  elo:             '#3b82f6',
+  poisson:         '#10b981',
   poisson_context: '#8b5cf6',
   ml_calibrated:   '#f59e0b',
   consensus:       '#6366f1',
