@@ -228,7 +228,20 @@ def run_full_refresh(
     _progress(0.25)
 
     # ------------------------------------------------------------------
-    # Step 4 — Team strengths (mandatory)
+    # Step 4b — WC2026 standings from results (fault-tolerant)
+    # ------------------------------------------------------------------
+    try:
+        from app.services.ingestion.standings_calculator import calculate_standings_from_results
+        n_calc = calculate_standings_from_results(db_conn)
+        summary["wc2026_standings"] = {"calc_teams": n_calc}
+    except InterruptedError:
+        raise
+    except Exception as exc:
+        logger.warning("WC2026 standings calculation failed (non-fatal): %s", exc)
+        summary["wc2026_standings"] = {"status": "failed", "error": str(exc)}
+
+    # ------------------------------------------------------------------
+    # Step 4c — Team strengths (mandatory)
     # ------------------------------------------------------------------
     with _StepTimer("Team strengths", 5, 8):
         strengths = calculate_team_strengths(db_conn)
@@ -319,15 +332,23 @@ def run_daily_update(
         logger.warning("API Football incremental failed: %s", exc)
         summary["api_football"] = {"status": "failed", "error": str(exc)}
 
-    # Step 1a — WC2026 standings (fault-tolerant)
+    # Step 1a — WC2026 standings: try API first, always run local calculator
     try:
         from app.services.ingestion.api_football import fetch_wc2026_standings
-        n = fetch_wc2026_standings(db_conn)
-        logger.info("pipeline: standings actualizados — %d equipos", n)
-        summary["wc2026_standings"] = {"teams": n}
+        n_api = fetch_wc2026_standings(db_conn)
+        logger.info("pipeline: standings API — %d equipos", n_api)
     except Exception as exc:
-        logger.warning("pipeline: fetch_wc2026_standings falló: %s", exc)
-        summary["wc2026_standings"] = {"status": "failed", "error": str(exc)}
+        logger.warning("pipeline: fetch_wc2026_standings (API) falló: %s", exc)
+        n_api = 0
+
+    try:
+        from app.services.ingestion.standings_calculator import calculate_standings_from_results
+        n_calc = calculate_standings_from_results(db_conn)
+        logger.info("pipeline: standings calculados desde resultados — %d equipos", n_calc)
+        summary["wc2026_standings"] = {"api_teams": n_api, "calc_teams": n_calc}
+    except Exception as exc:
+        logger.warning("pipeline: calculate_standings_from_results falló: %s", exc)
+        summary["wc2026_standings"] = {"api_teams": n_api, "status": "calc_failed", "error": str(exc)}
     _progress(0.15)
 
     # Step 1c — WC2026 bookings / suspensions (fault-tolerant)
