@@ -356,6 +356,25 @@ export function useEloHistory(teamId: string | null) {
   })
 }
 
+export interface TeamContext {
+  team_id: string
+  team_name: string
+  injuries: { count: number; penalty_pct: number; players: string[] }
+  suspensions: { count: number; penalty_pct: number }
+  altitude_venues: { venue_id: string; venue_name: string; altitude_m: number; adjustment_pct: number }[]
+  xg_available: boolean
+}
+
+export function useTeamContext(teamId: string | null) {
+  return useQuery<TeamContext>({
+    queryKey: ['team-context', teamId],
+    queryFn: () => api.get<TeamContext>(`/api/teams/${teamId}/context`),
+    enabled: !!teamId,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  })
+}
+
 export function useAppConfig() {
   return useQuery<AppConfigEntry[]>({
     queryKey: ['app-config'],

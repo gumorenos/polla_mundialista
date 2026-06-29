@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from 'recharts'
-import { useRunSimulation, useSimulations, useSimulationComparison, useSimulationDiff, useShapGlobal, useShapMatch, useTeamNarrative, useOddsValue, useEloHistory } from '../api/hooks'
+import { useRunSimulation, useSimulations, useSimulationComparison, useSimulationDiff, useShapGlobal, useShapMatch, useTeamNarrative, useOddsValue, useEloHistory, useTeamContext } from '../api/hooks'
+import type { TeamContext } from '../api/hooks'
 import type { TeamResult, SimulationComparisonTeam, SimulationDiffTeam, ShapFactor, OddsValueTeam } from '../types'
 import { TeamEvolutionChart } from '../components/TeamEvolutionChart'
 
@@ -348,6 +349,61 @@ function ShapMatchPanel({ homeId, awayId, homeName, awayName }: {
   )
 }
 
+function TeamContextPanel({ teamId }: { teamId: string }) {
+  const { data, isLoading } = useTeamContext(teamId)
+
+  if (isLoading) {
+    return <div className="h-3 rounded animate-pulse" style={{ background: 'var(--color-surface2)', width: '60%' }} />
+  }
+  if (!data) return null
+
+  const hasAdjustments = data.injuries.count > 0 || data.suspensions.count > 0 || data.altitude_venues.length > 0
+
+  return (
+    <div className="space-y-1.5">
+      {!hasAdjustments && (
+        <p className="text-xs" style={{ color: 'var(--color-muted)' }}>✅ Sin ajustes contextuales activos</p>
+      )}
+      {data.injuries.count > 0 && (
+        <div className="rounded px-2 py-1.5 text-xs" style={{ background: 'var(--color-surface2)' }}>
+          <span className="text-yellow-400 font-medium">
+            ⚠️ {data.injuries.count} lesión{data.injuries.count !== 1 ? 'es' : ''} confirmada{data.injuries.count !== 1 ? 's' : ''}
+          </span>
+          <span className="ml-1" style={{ color: 'var(--color-muted)' }}>
+            → {data.injuries.penalty_pct}% en ataque
+          </span>
+          {data.injuries.players.length > 0 && (
+            <p className="mt-0.5" style={{ color: 'var(--color-muted)' }}>
+              {data.injuries.players.join(', ')}
+            </p>
+          )}
+        </div>
+      )}
+      {data.suspensions.count > 0 && (
+        <div className="rounded px-2 py-1.5 text-xs" style={{ background: 'var(--color-surface2)' }}>
+          <span className="text-orange-400 font-medium">
+            🟨 {data.suspensions.count} suspensión{data.suspensions.count !== 1 ? 'es' : ''}
+          </span>
+          <span className="ml-1" style={{ color: 'var(--color-muted)' }}>
+            → {data.suspensions.penalty_pct}% en ataque
+          </span>
+        </div>
+      )}
+      {data.altitude_venues.map((v) => (
+        <div key={v.venue_id} className="rounded px-2 py-1.5 text-xs" style={{ background: 'var(--color-surface2)' }}>
+          <span className="text-blue-400 font-medium">⛰️ {v.venue_name}</span>
+          <span className="ml-1" style={{ color: 'var(--color-muted)' }}>
+            {v.altitude_m}m → {v.adjustment_pct > 0 ? '+' : ''}{v.adjustment_pct}% rendimiento
+          </span>
+        </div>
+      ))}
+      {data.xg_available && (
+        <p className="text-xs" style={{ color: 'var(--color-muted)' }}>📊 xG StatsBomb disponible</p>
+      )}
+    </div>
+  )
+}
+
 function TeamDrawer({
   team,
   allTeams,
@@ -567,6 +623,16 @@ function TeamDrawer({
               </div>
             )}
           </div>
+
+          {/* Poisson+Ctx factors */}
+          {(model === 'poisson_context' || model === 'consensus') && (
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--color-muted)' }}>
+                Ajustes Poisson+Ctx
+              </p>
+              <TeamContextPanel teamId={team.team_id} />
+            </div>
+          )}
         </div>
       </div>
     </>
