@@ -109,6 +109,18 @@ class MLCalibratedModel(PredictionModel):
             len(self._elo_map), len(self._strength_map), len(self._sb_map),
         )
 
+        # Pre-compute predictions for all possible WC2026 matchups.
+        # 48 teams × 47 opponents = 2256 pairs → 1 batch predict_proba call
+        # instead of 4.74M individual calls during Monte Carlo.
+        # predict_match() becomes an O(1) dict lookup.
+        self._predict_cache: dict[tuple[str, str], tuple[float, float, float]] = {}
+        if self._clf is not None:
+            self._predict_cache = self._build_predict_cache()
+            logger.info(
+                "MLCalibratedModel: cache pre-computado — %d pares",
+                len(self._predict_cache),
+            )
+
     # ------------------------------------------------------------------
     # Public API (PredictionModel interface)
     # ------------------------------------------------------------------
@@ -120,7 +132,6 @@ class MLCalibratedModel(PredictionModel):
         context: dict | None = None,
     ) -> dict:
         ctx = context or {}
-        is_neutral: bool = ctx.get("is_neutral", True)
 
         if self._clf is None:
             raise RuntimeError(
@@ -128,45 +139,109 @@ class MLCalibratedModel(PredictionModel):
                 "Ejecuta POST /api/ml/train antes de correr esta simulación."
             )
 
+        # O(1) cache lookup — covers all normal Monte Carlo calls
+        cached = self._predict_cache.get((home_team_id, away_team_id))
+        if cached is not None:
+            hw, dr, aw = cached
+            exp_h = round(self._elo_map.get(home_team_id, 1500) / 800, 2)
+            exp_a = round(self._elo_map.get(away_team_id, 1500) / 800, 2)
+            return {
+                "home_win":            hw,
+                "draw":                dr,
+                "away_win":            aw,
+                "expected_home_goals": exp_h,
+                "expected_away_goals": exp_a,
+                "most_likely_score":   f"{round(exp_h)}-{round(exp_a)}",
+                "features_used":       ["cache_lookup"],
+                "features_missing":    [],
+                "explanation":         f"ML cache: {hw:.1%}/{dr:.1%}/{aw:.1%}",
+            }
+
+        # Fallback: on-the-fly para pares fuera del cache (no debería ocurrir en MC)
+        logger.warning(
+            "MLCalibratedModel: cache miss %s vs %s — computando on-the-fly",
+            home_team_id, away_team_id,
+        )
         from app.services.ml.feature_builder import compute_features
         features, missing = compute_features(
-            home_team_id, away_team_id, is_neutral,
+            home_team_id, away_team_id,
+            ctx.get("is_neutral", True),
             self._elo_map, self._strength_map, self._sb_map,
         )
-
         try:
-            X = np.array([features], dtype=np.float64)
-            proba = self._clf.predict_proba(X)[0]  # shape (3,)
+            X     = np.array([features], dtype=np.float64)
+            proba = self._clf.predict_proba(X)[0]
             total = float(sum(proba))
-            if total > 0:
-                proba = [float(p) / total for p in proba]
-            else:
-                proba = [1 / 3, 1 / 3, 1 / 3]
+            p     = [float(v) / total for v in proba] if total > 0 else [1/3, 1/3, 1/3]
+            return {
+                "home_win":            p[0],
+                "draw":                p[1],
+                "away_win":            p[2],
+                "expected_home_goals": 1.5,
+                "expected_away_goals": 1.0,
+                "most_likely_score":   "1-1",
+                "features_used":       [],
+                "features_missing":    missing,
+                "explanation":         "ML on-the-fly (cache miss)",
+            }
         except Exception as exc:
             logger.warning("MLCalibratedModel: inference error: %s", exc)
             return self._fallback(home_team_id, away_team_id, ctx)
 
-        home_win, draw, away_win = proba[0], proba[1], proba[2]
-        algo = (self._model_meta or {}).get("algorithm", "ml")
-
-        return {
-            "home_win":             home_win,
-            "draw":                 draw,
-            "away_win":             away_win,
-            "expected_home_goals":  _rough_goals(home_win, draw, away_win, home=True),
-            "expected_away_goals":  _rough_goals(home_win, draw, away_win, home=False),
-            "most_likely_score":    _most_likely_score(home_win, draw, away_win),
-            "features_used":        [f for f in self._feature_names if f not in missing],
-            "features_missing":     missing,
-            "explanation": (
-                f"{algo.upper()}: P(home_win)={home_win:.2%} "
-                f"P(draw)={draw:.2%} P(away_win)={away_win:.2%}"
-            ),
-        }
-
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
+
+    def _build_predict_cache(self) -> dict[tuple[str, str], tuple[float, float, float]]:
+        """Pre-compute win/draw/loss for all (home, away) pairs in one batch call."""
+        from app.services.ml.feature_builder import compute_features
+
+        try:
+            team_rows = self._conn.execute(
+                "SELECT id FROM teams WHERE is_wc2026 = 1"
+            ).fetchall()
+            team_ids = [r["id"] for r in team_rows]
+        except Exception as exc:
+            logger.warning("MLCalibratedModel: no se pudo cargar equipos: %s", exc)
+            return {}
+
+        if len(team_ids) < 2:
+            return {}
+
+        pairs: list[tuple[str, str]] = []
+        rows: list[list[float]] = []
+
+        for home_id in team_ids:
+            for away_id in team_ids:
+                if home_id == away_id:
+                    continue
+                features, _ = compute_features(
+                    home_id, away_id,
+                    is_neutral=True,
+                    elo_map=self._elo_map,
+                    strength_map=self._strength_map,
+                    sb_map=self._sb_map,
+                )
+                pairs.append((home_id, away_id))
+                rows.append(features)
+
+        if not rows:
+            return {}
+
+        try:
+            X      = np.array(rows, dtype=np.float64)
+            probas = self._clf.predict_proba(X)
+        except Exception as exc:
+            logger.warning("MLCalibratedModel: batch predict_proba falló: %s", exc)
+            return {}
+
+        cache: dict[tuple[str, str], tuple[float, float, float]] = {}
+        for (home_id, away_id), proba in zip(pairs, probas):
+            total = float(sum(proba))
+            p = [float(v) / total for v in proba] if total > 0 else [1/3, 1/3, 1/3]
+            cache[(home_id, away_id)] = (p[0], p[1], p[2])
+
+        return cache
 
     def _load_model(self) -> None:
         """Load the best active ML model from the DB (if any)."""

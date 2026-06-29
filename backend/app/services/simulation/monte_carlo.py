@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import logging
-import signal
 import sqlite3
 import time
 from collections import Counter, defaultdict
@@ -44,14 +43,6 @@ _PROGRESS_LOG_INTERVAL = 5_000  # log every N iterations
 
 def _get_timeout() -> int:
     return settings.MONTE_CARLO_TIMEOUT_S
-
-
-def _alarm_handler(signum: int, frame: object) -> None:  # noqa: ARG001
-    timeout = _get_timeout()
-    raise TimeoutError(
-        f"Monte Carlo simulation timed out after {timeout}s. "
-        "Increase MONTE_CARLO_TIMEOUT_S or reduce MONTECARLO_ITERATIONS."
-    )
 
 
 # Map round labels → simulation_team_results column names
@@ -132,73 +123,78 @@ def run_monte_carlo(
 
         num_batches = max(1, (n_iter + batch - 1) // batch)
 
-        # Arm a watchdog: if the simulation loop hangs beyond MONTE_CARLO_TIMEOUT_S
-        # the SIGALRM handler raises TimeoutError which propagates as a normal failure.
         _timeout_s = _get_timeout()
-        _has_sigalrm = hasattr(signal, "SIGALRM")
-        if _has_sigalrm:
-            signal.signal(signal.SIGALRM, _alarm_handler)
-            signal.alarm(_timeout_s)
+        completed = 0
+        _loop_start = time.monotonic()
+        for batch_idx in range(num_batches):
+            batch_iters = min(batch, n_iter - completed)
 
-        try:
-            completed = 0
-            _loop_start = time.monotonic()
-            for batch_idx in range(num_batches):
-                batch_iters = min(batch, n_iter - completed)
-
-                for i in range(batch_iters):
-                    global_i = completed + i
-                    if global_i % _PROGRESS_LOG_INTERVAL == 0 and global_i > 0:
-                        elapsed = time.monotonic() - _loop_start
-                        rate = global_i / elapsed
-                        remaining = (n_iter - global_i) / rate if rate > 0 else 0
-                        logger.info(
-                            "[Monte Carlo] %s — %d/%d iteraciones (%.1f%%) "
-                            "— %.0fs transcurridos, ~%.0fs restantes",
-                            model_name, global_i, n_iter,
-                            100 * global_i / n_iter, elapsed, remaining,
+            for i in range(batch_iters):
+                global_i = completed + i
+                if global_i % _PROGRESS_LOG_INTERVAL == 0 and global_i > 0:
+                    elapsed = time.monotonic() - _loop_start
+                    rate = global_i / elapsed
+                    remaining = (n_iter - global_i) / rate if rate > 0 else 0
+                    logger.info(
+                        "[Monte Carlo] %s — %d/%d iteraciones (%.1f%%) "
+                        "— %.0fs transcurridos, ~%.0fs restantes",
+                        model_name, global_i, n_iter,
+                        100 * global_i / n_iter, elapsed, remaining,
+                    )
+                    # Timeout check — safe alternative to SIGALRM.
+                    # Checked between iterations, never inside C code.
+                    if elapsed > _timeout_s:
+                        logger.warning(
+                            "[Monte Carlo] %s — timeout después de %.0fs "
+                            "en iteración %d/%d (%.1f%%) — guardando resultados parciales",
+                            model_name, elapsed, global_i, n_iter,
+                            100 * global_i / n_iter,
+                        )
+                        completed += i + 1
+                        raise TimeoutError(
+                            f"Monte Carlo timeout after {elapsed:.0f}s at "
+                            f"{global_i}/{n_iter} iterations "
+                            f"({100 * global_i / n_iter:.1f}%). "
+                            "Increase MONTE_CARLO_TIMEOUT_S or reduce MONTECARLO_ITERATIONS."
                         )
 
-                    iter_seed = rng_seed + global_i
-                    iter_rng  = np.random.default_rng(iter_seed)
-                    bracket   = WC2026Bracket(model, groups, iter_rng)
+                iter_seed = rng_seed + global_i
+                iter_rng  = np.random.default_rng(iter_seed)
+                bracket   = WC2026Bracket(model, groups, iter_rng)
 
-                    classified    = bracket.play_group_stage()
-                    ko_result     = bracket.play_knockout(classified)
-                    rounds_reached = ko_result["rounds_reached"]
+                classified    = bracket.play_group_stage()
+                ko_result     = bracket.play_knockout(classified)
+                rounds_reached = ko_result["rounds_reached"]
 
-                    if ko_result["champion"]:
-                        win_count[ko_result["champion"]] += 1
+                if ko_result["champion"]:
+                    win_count[ko_result["champion"]] += 1
 
-                    # Group winners and qualifiers
-                    for pos, tid in classified.items():
-                        if pos.startswith("1"):
-                            group_win_count[tid] += 1
-                        qualify_count[tid] += 1
+                # Group winners and qualifiers
+                for pos, tid in classified.items():
+                    if pos.startswith("1"):
+                        group_win_count[tid] += 1
+                    qualify_count[tid] += 1
 
-                    # Accumulate round-reach counts
-                    for tid, rnd in rounds_reached.items():
-                        rounds_count[tid][rnd] += 1
-                        if rnd in (ROUND_CHAMPION, ROUND_RUNNER_UP,
-                                   ROUND_THIRD, ROUND_FOURTH, ROUND_SF):
-                            rounds_count[tid][ROUND_SF] += 1
-                        if rnd in (ROUND_CHAMPION, ROUND_RUNNER_UP):
-                            rounds_count[tid][ROUND_FINAL] += 1
-                        if rnd == ROUND_CHAMPION:
-                            rounds_count[tid][ROUND_CHAMPION] += 1
+                # Accumulate round-reach counts
+                for tid, rnd in rounds_reached.items():
+                    rounds_count[tid][rnd] += 1
+                    if rnd in (ROUND_CHAMPION, ROUND_RUNNER_UP,
+                               ROUND_THIRD, ROUND_FOURTH, ROUND_SF):
+                        rounds_count[tid][ROUND_SF] += 1
+                    if rnd in (ROUND_CHAMPION, ROUND_RUNNER_UP):
+                        rounds_count[tid][ROUND_FINAL] += 1
+                    if rnd == ROUND_CHAMPION:
+                        rounds_count[tid][ROUND_CHAMPION] += 1
 
-                completed += batch_iters
-                progress = completed / n_iter
-                if progress_callback:
-                    progress_callback(progress)
+            completed += batch_iters
+            progress = completed / n_iter
+            if progress_callback:
+                progress_callback(progress)
 
-                logger.info(
-                    "MC batch %d/%d done — %d/%d iterations",
-                    batch_idx + 1, num_batches, completed, n_iter,
-                )
-        finally:
-            if _has_sigalrm:
-                signal.alarm(0)  # cancel watchdog regardless of outcome
+            logger.info(
+                "MC batch %d/%d done — %d/%d iterations",
+                batch_idx + 1, num_batches, completed, n_iter,
+            )
 
         try:
             if not repo.run_exists(run_id):
@@ -263,6 +259,22 @@ def run_monte_carlo(
             raise
 
         _log_top_5(all_team_ids, win_count, n_iter)
+
+    except TimeoutError as exc:
+        # Save whatever was accumulated before the timeout so partial results
+        # are usable rather than losing everything.
+        logger.warning("Monte Carlo run %s: timeout — guardando %d iteraciones parciales", run_id, completed)
+        _persist_partial_results(
+            repo, conn, run_id, all_team_ids, valid_team_ids,
+            win_count, rounds_count, group_win_count, qualify_count,
+            completed if completed > 0 else 1,
+        )
+        repo.update_run_status(
+            run_id, "completed",
+            finished_at=datetime.now(timezone.utc).isoformat(),
+            error_message=str(exc),
+        )
+        conn.commit()
 
     except Exception as exc:
         logger.exception("Monte Carlo run %s failed: %s", run_id, exc)
@@ -427,6 +439,43 @@ def _load_groups(conn: sqlite3.Connection) -> dict[str, list[str]]:
     total_teams = sum(len(v) for v in groups.values())
     logger.info("_load_groups: loaded %d groups, %d active teams from DB", len(groups), total_teams)
     return groups
+
+
+def _persist_partial_results(
+    repo: "SimulationRepository",
+    conn: sqlite3.Connection,
+    run_id: str,
+    all_team_ids: list[str],
+    valid_team_ids: set,
+    win_count: "Counter[str]",
+    rounds_count: "dict[str, Counter[str]]",
+    group_win_count: "Counter[str]",
+    qualify_count: "Counter[str]",
+    total: int,
+) -> None:
+    """Persist whatever was accumulated — used when simulation times out."""
+    try:
+        for tid in all_team_ids:
+            if tid not in valid_team_ids:
+                continue
+            rc = rounds_count[tid]
+            repo.insert_team_result({
+                "simulation_run_id":   run_id,
+                "team_id":             tid,
+                "win_group":           group_win_count[tid] / total,
+                "qualify":             qualify_count[tid]   / total,
+                "reach_round_of_32":   (rc.get(ROUND_R32, 0) + qualify_count[tid]) / total,
+                "reach_round_of_16":   rc.get(ROUND_R16, 0)  / total,
+                "reach_quarter_final": rc.get(ROUND_QF,  0)  / total,
+                "reach_semi_final":    rc.get(ROUND_SF,  0)  / total,
+                "reach_final":         rc.get(ROUND_FINAL, 0) / total,
+                "win_tournament":      win_count[tid] / total,
+                "expected_group_points": None,
+            })
+        conn.commit()
+    except Exception as exc:
+        logger.warning("_persist_partial_results: falló al guardar resultados parciales: %s", exc)
+        conn.rollback()
 
 
 def _log_top_5(
