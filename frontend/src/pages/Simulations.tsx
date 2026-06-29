@@ -634,12 +634,13 @@ function OddsValueTable({ teams, updatedAt }: { teams: OddsValueTeam[]; updatedA
 export default function Simulations() {
   const [tab, setTab] = useState<'individual' | 'comparar' | 'mercado'>('individual')
   const [model, setModel] = useState('poisson')
+  const [marketModel, setMarketModel] = useState('elo')
   const [drawerTeam, setDrawerTeam] = useState<TeamResult | null>(null)
   const { data, isLoading, error } = useSimulations(model)
   const runSim = useRunSimulation()
   const comparison = useSimulationComparison()
   const diff = useSimulationDiff(model)
-  const oddsValue = useOddsValue(model)
+  const oddsValue = useOddsValue(marketModel)
 
   const modelsWithData = comparison.data
     ? comparison.data.models.filter((m) =>
@@ -784,6 +785,20 @@ export default function Simulations() {
       {/* Odds vs. Market view */}
       {tab === 'mercado' && (
         <>
+          <div className="flex items-center gap-3">
+            <label className="text-sm text-gray-400">Modelo Oráculo:</label>
+            <select
+              value={marketModel}
+              onChange={(e) => setMarketModel(e.target.value)}
+              className="rounded border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200 w-full sm:w-auto min-h-[44px]"
+            >
+              {MODELS.map((m) => (
+                <option key={m} value={m}>
+                  {MODEL_LABELS[m] ?? m}
+                </option>
+              ))}
+            </select>
+          </div>
           {oddsValue.isLoading && <p className="text-gray-400">Cargando odds…</p>}
           {oddsValue.error && (
             <div className="rounded-lg border border-yellow-800/40 bg-yellow-950/20 px-4 py-3 text-sm text-yellow-400">
