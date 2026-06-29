@@ -768,11 +768,20 @@ def _m018_wc2026_squads(conn: sqlite3.Connection) -> None:
 
 
 def _m022_results_unique_index(conn: sqlite3.Connection) -> None:
-    """Unique constraint on (home_team_id, away_team_id, match_date) to prevent duplicate results."""
-    conn.executescript(
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_results_unique_match "
-        "ON results(home_team_id, away_team_id, match_date);"
-    )
+    """Clean duplicate results and add unique constraint on (home_team_id, away_team_id, match_date)."""
+    # First, delete duplicates — keep the row with the smallest id (first inserted)
+    conn.execute("""
+        DELETE FROM results
+        WHERE id NOT IN (
+            SELECT MIN(id) FROM results
+            GROUP BY home_team_id, away_team_id, match_date
+        )
+    """)
+    # Then create the unique index to prevent future duplicates
+    conn.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_results_unique_match
+        ON results(home_team_id, away_team_id, match_date)
+    """)
 
 
 def _m021_teams_is_wc2026(conn: sqlite3.Connection) -> None:
