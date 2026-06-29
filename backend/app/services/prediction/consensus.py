@@ -16,6 +16,85 @@ logger = logging.getLogger(__name__)
 
 _MODEL_NAMES = ["baseline", "elo", "poisson", "poisson_context", "ml_calibrated"]
 
+_AGG_COLS = [
+    "win_tournament", "reach_final", "reach_semi_final",
+    "reach_quarter_final", "reach_round_of_16", "reach_round_of_32",
+    "qualify", "win_group",
+]
+
+
+def compute_consensus_from_results(conn: sqlite3.Connection) -> dict[str, dict]:
+    """Aggregate stored per-model simulation results into a consensus view.
+
+    Reads the most recent completed simulation for each individual model and
+    computes a weighted average of all per-team probability columns.
+
+    Returns {team_id: {win_tournament, reach_final, ...}} or empty dict if
+    fewer than 2 individual model simulations are available.
+    """
+    weights = get_consensus_weights(conn)
+
+    rows = conn.execute(
+        """
+        SELECT str.team_id, sr.model_name,
+               str.win_tournament,      str.reach_final,
+               str.reach_semi_final,    str.reach_quarter_final,
+               str.reach_round_of_16,   str.reach_round_of_32,
+               str.qualify,             str.win_group
+        FROM simulation_team_results str
+        JOIN simulation_runs sr ON str.simulation_run_id = sr.id
+        WHERE sr.status     = 'completed'
+          AND sr.model_name IN ('baseline','elo','poisson','poisson_context','ml_calibrated')
+          AND sr.finished_at = (
+              SELECT MAX(sr2.finished_at)
+              FROM simulation_runs sr2
+              WHERE sr2.model_name = sr.model_name
+                AND sr2.status     = 'completed'
+          )
+        """
+    ).fetchall()
+
+    if not rows:
+        logger.warning("compute_consensus: no hay simulaciones individuales disponibles")
+        return {}
+
+    by_team: dict[str, dict[str, dict]] = {}
+    models_present: set[str] = set()
+    for r in rows:
+        tid = r["team_id"]
+        m   = r["model_name"]
+        models_present.add(m)
+        by_team.setdefault(tid, {})[m] = {
+            col: float(r[col] or 0) for col in _AGG_COLS
+        }
+
+    if len(models_present) < 2:
+        logger.warning(
+            "compute_consensus: solo %d modelo(s) disponibles — mínimo 2",
+            len(models_present),
+        )
+        return {}
+
+    w_present = {m: weights[m] for m in models_present if m in weights}
+    total_w   = sum(w_present.values()) or 1.0
+    w_norm    = {m: v / total_w for m, v in w_present.items()}
+
+    result: dict[str, dict] = {}
+    for tid, model_probs in by_team.items():
+        aggregated: dict[str, object] = {
+            col: sum(w_norm.get(m, 0) * probs[col] for m, probs in model_probs.items())
+            for col in _AGG_COLS
+        }
+        aggregated["models_used"]  = sorted(model_probs.keys())
+        aggregated["weights_used"] = {m: round(w_norm.get(m, 0), 4) for m in model_probs}
+        result[tid] = aggregated
+
+    logger.info(
+        "compute_consensus: calculado para %d equipos usando modelos: %s",
+        len(result), sorted(models_present),
+    )
+    return result
+
 
 def _get_model(model_name: str, conn: sqlite3.Connection) -> PredictionModel:
     from app.services.prediction.baseline import BaselineModel

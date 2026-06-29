@@ -88,6 +88,10 @@ def run_monte_carlo(
     Returns:
         simulation run_id (str).
     """
+    # Consensus is a deterministic aggregation of stored results — no MC needed.
+    if model_name == "consensus":
+        return _run_consensus_aggregation(conn, progress_callback)
+
     n_iter  = iterations or settings.MONTECARLO_ITERATIONS
     rng_seed = seed if seed is not None else settings.MONTECARLO_SEED
     batch   = settings.SIMULATION_BATCH_SIZE
@@ -262,6 +266,96 @@ def run_monte_carlo(
 
     except Exception as exc:
         logger.exception("Monte Carlo run %s failed: %s", run_id, exc)
+        repo.update_run_status(run_id, "failed", error_message=str(exc))
+        conn.commit()
+        raise
+
+    return run_id
+
+
+# ---------------------------------------------------------------------------
+# Consensus aggregation (no Monte Carlo)
+# ---------------------------------------------------------------------------
+
+def _run_consensus_aggregation(
+    conn: sqlite3.Connection,
+    progress_callback: Callable[[float], None] | None = None,
+) -> str:
+    """Build consensus results by aggregating stored per-model simulations.
+
+    This replaces a full Monte Carlo run for the consensus model. The result
+    is mathematically equivalent to running MC with ConsensusModel but takes
+    milliseconds instead of hours.
+    """
+    from app.services.prediction.consensus import compute_consensus_from_results
+
+    consensus_data = compute_consensus_from_results(conn)
+    if not consensus_data:
+        raise RuntimeError(
+            "consensus simulation: no hay simulaciones individuales disponibles. "
+            "Ejecuta las 5 simulaciones individuales (baseline, elo, poisson, "
+            "poisson_context, ml_calibrated) antes de correr consensus."
+        )
+
+    repo = SimulationRepository(conn)
+    run_id = repo.create_run({
+        "model_name":      "consensus",
+        "status":          "running",
+        "iterations":      0,
+        "seed":            0,
+        "config_snapshot": json.dumps({"method": "aggregation_from_stored_results"}),
+    })
+    repo.update_run_status(
+        run_id, "running",
+        started_at=datetime.now(timezone.utc).isoformat(),
+    )
+    conn.commit()
+
+    if progress_callback:
+        progress_callback(0.5)
+
+    try:
+        valid_team_ids = repo.get_existing_team_ids()
+        inserted = 0
+        for tid, probs in consensus_data.items():
+            if tid not in valid_team_ids:
+                logger.warning("consensus: team_id '%s' not in teams table — skipping", tid)
+                continue
+            repo.insert_team_result({
+                "simulation_run_id":   run_id,
+                "team_id":             tid,
+                "win_group":           probs.get("win_group"),
+                "qualify":             probs.get("qualify"),
+                "reach_round_of_32":   probs.get("reach_round_of_32"),
+                "reach_round_of_16":   probs.get("reach_round_of_16"),
+                "reach_quarter_final": probs.get("reach_quarter_final"),
+                "reach_semi_final":    probs.get("reach_semi_final"),
+                "reach_final":         probs.get("reach_final"),
+                "win_tournament":      probs.get("win_tournament"),
+                "expected_group_points": None,
+            })
+            inserted += 1
+
+        if inserted == 0:
+            raise RuntimeError("consensus aggregation: ningún equipo insertado")
+
+        repo.update_run_status(
+            run_id, "completed",
+            finished_at=datetime.now(timezone.utc).isoformat(),
+        )
+        conn.commit()
+
+        if progress_callback:
+            progress_callback(1.0)
+
+        first = next(iter(consensus_data.values()), {})
+        logger.info(
+            "Consensus aggregation completada: %d equipos, modelos usados: %s",
+            inserted, first.get("models_used", []),
+        )
+
+    except Exception as exc:
+        conn.rollback()
         repo.update_run_status(run_id, "failed", error_message=str(exc))
         conn.commit()
         raise
