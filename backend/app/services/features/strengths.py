@@ -30,8 +30,8 @@ _MIN_WEIGHT = 1e-6       # below this a match is considered negligible
 _STRENGTH_MIN = 0.30    # hard floor after normalisation
 _STRENGTH_MAX = 3.00    # hard ceiling after normalisation
 _XG_MIN_MATCHES = 3     # minimum StatsBomb matches to trust xG strengths
-_MIN_MATCHES_FOR_GLOBAL_MEAN = 20  # exclude noisy outliers from global normalisation baseline
-_MIN_MATCHES_FOR_TEAM_STRENGTH = 5   # floor absoluto: menos de esto → prior puro (1.0/1.0)
+_MIN_MATCHES_FOR_GLOBAL_MEAN = 10  # with inter-WC2026 filter, fewer matches per team
+_MIN_MATCHES_FOR_TEAM_STRENGTH = 3   # same reason — only inter-WC2026 matches count
 _SHRINKAGE_K = 8.0  # peso del prior en partidos equivalentes hacia la media global
 
 
@@ -323,7 +323,12 @@ def _load_elo_map(conn: sqlite3.Connection) -> dict[str, float]:
 
 
 def _load_results(conn: sqlite3.Connection, cutoff_iso: str) -> list[sqlite3.Row]:
-    """Return all results on or before cutoff_iso with complete goal data."""
+    """Return results where BOTH teams are WC2026 qualifiers, on or before cutoff_iso.
+
+    Filtering to inter-WC2026 matches ensures apples-to-apples comparisons:
+    NZL vs SAM is excluded so NZL's attack_strength isn't inflated by Pacific
+    island results. Only matches between two qualified teams count.
+    """
     return conn.execute(
         """
         SELECT home_team_id, away_team_id, home_goals, away_goals, match_date
@@ -331,6 +336,8 @@ def _load_results(conn: sqlite3.Connection, cutoff_iso: str) -> list[sqlite3.Row
         WHERE match_date <= ?
           AND home_goals IS NOT NULL
           AND away_goals IS NOT NULL
+          AND home_team_id IN (SELECT id FROM teams)
+          AND away_team_id IN (SELECT id FROM teams)
         ORDER BY match_date ASC
         """,
         (cutoff_iso,),
