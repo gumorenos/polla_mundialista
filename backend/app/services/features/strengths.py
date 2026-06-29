@@ -32,7 +32,11 @@ _STRENGTH_MAX = 3.00    # hard ceiling after normalisation
 _XG_MIN_MATCHES = 3     # minimum StatsBomb matches to trust xG strengths
 _MIN_MATCHES_FOR_GLOBAL_MEAN = 10  # with inter-WC2026 filter, fewer matches per team
 _MIN_MATCHES_FOR_TEAM_STRENGTH = 3   # same reason — only inter-WC2026 matches count
-_SHRINKAGE_K = 8.0  # peso del prior en partidos equivalentes hacia la media global
+_SHRINKAGE_K = 15.0  # subido de 8: más regularización hacia la media
+                     # n=20 → 57% observed / 43% prior (antes 71/29)
+                     # n=50 → 77% observed / 23% prior (antes 86/14)
+_MEAN_ELO_WC2026  = 1740.0   # media ELO del conjunto de 48 clasificados
+_RIVAL_FACTOR_EXP = 2.0      # exponente de la fórmula cuadrática
 
 
 def calculate_xg_strengths(
@@ -181,7 +185,8 @@ def calculate_team_strengths(
 
             rival_elo = elo_map.get(rival_id)
             has_elo = rival_elo is not None
-            rival_factor = 1.0 + ((rival_elo or 1500.0) / 3000.0)
+            _elo = rival_elo or _MEAN_ELO_WC2026
+            rival_factor = max(0.1, (_elo / _MEAN_ELO_WC2026) ** _RIVAL_FACTOR_EXP)
 
             a = acc[team_id]
             a["attack_bruto"]  += goals_for  * weight * rival_factor
