@@ -14,6 +14,8 @@ import sqlite3
 import threading
 from pathlib import Path
 
+import numpy as np
+
 from app.core.config import settings
 from app.services.prediction.base import PredictionModel
 
@@ -93,13 +95,15 @@ class MLCalibratedModel(PredictionModel):
         # Preload de mapas una sola vez — evita 14.2M queries en Monte Carlo.
         # Los mapas son estables durante una simulación (datos no cambian mid-run).
         from app.services.ml.feature_builder import (
+            FEATURE_NAMES,
             load_elo_map,
             load_strength_map,
             load_statsbomb_map,
         )
-        self._elo_map      = load_elo_map(conn)
-        self._strength_map = load_strength_map(conn)
-        self._sb_map       = load_statsbomb_map(conn)
+        self._elo_map       = load_elo_map(conn)
+        self._strength_map  = load_strength_map(conn)
+        self._sb_map        = load_statsbomb_map(conn)
+        self._feature_names = FEATURE_NAMES
         logger.debug(
             "MLCalibratedModel: maps cargados — %d ELO, %d strengths, %d StatsBomb",
             len(self._elo_map), len(self._strength_map), len(self._sb_map),
@@ -124,7 +128,6 @@ class MLCalibratedModel(PredictionModel):
                 "Ejecuta POST /api/ml/train antes de correr esta simulación."
             )
 
-        from app.services.ml.feature_builder import FEATURE_NAMES as _FN
         from app.services.ml.feature_builder import compute_features
         features, missing = compute_features(
             home_team_id, away_team_id, is_neutral,
@@ -132,8 +135,7 @@ class MLCalibratedModel(PredictionModel):
         )
 
         try:
-            import pandas as pd
-            X = pd.DataFrame([features], columns=_FN)
+            X = np.array([features], dtype=np.float64)
             proba = self._clf.predict_proba(X)[0]  # shape (3,)
             total = float(sum(proba))
             if total > 0:
@@ -154,7 +156,7 @@ class MLCalibratedModel(PredictionModel):
             "expected_home_goals":  _rough_goals(home_win, draw, away_win, home=True),
             "expected_away_goals":  _rough_goals(home_win, draw, away_win, home=False),
             "most_likely_score":    _most_likely_score(home_win, draw, away_win),
-            "features_used":        [f for f in _feature_names() if f not in missing],
+            "features_used":        [f for f in self._feature_names if f not in missing],
             "features_missing":     missing,
             "explanation": (
                 f"{algo.upper()}: P(home_win)={home_win:.2%} "
