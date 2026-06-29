@@ -34,6 +34,9 @@ class EloModel(PredictionModel):
         self._draw_rate_base = (
             draw_rate if draw_rate is not None else self._compute_draw_rate()
         )
+        # Preload ELO ratings — avoids 2 DB queries per predict_match() call.
+        # ELO ratings are stable during a simulation run.
+        self._elo_map: dict[str, float] = self._load_elo_map()
 
     # ------------------------------------------------------------------
     # Public API
@@ -102,21 +105,31 @@ class EloModel(PredictionModel):
     # Internal
     # ------------------------------------------------------------------
 
-    def _get_elo(self, team_id: str) -> float | None:
+    def _load_elo_map(self) -> dict[str, float]:
+        """Load all ELO ratings into memory (most recent per team)."""
         try:
-            row = self._conn.execute(
+            rows = self._conn.execute(
                 """
-                SELECT value FROM ratings
-                WHERE team_id = ? AND rating_type = 'elo'
-                ORDER BY effective_date DESC
-                LIMIT 1
-                """,
-                (team_id,),
-            ).fetchone()
+                SELECT r.team_id, r.value
+                FROM ratings r
+                INNER JOIN (
+                    SELECT team_id, MAX(effective_date) AS max_date
+                    FROM ratings
+                    WHERE rating_type = 'elo' AND source != 'own_elo'
+                    GROUP BY team_id
+                ) latest ON r.team_id = latest.team_id
+                         AND r.effective_date = latest.max_date
+                         AND r.rating_type = 'elo'
+                         AND r.source != 'own_elo'
+                """
+            ).fetchall()
+            return {r["team_id"]: float(r["value"]) for r in rows}
         except Exception as exc:
-            logger.warning("EloModel: DB error for team %s: %s", team_id, exc)
-            return None
-        return float(row["value"]) if row else None
+            logger.warning("EloModel: failed to preload ELO map: %s", exc)
+            return {}
+
+    def _get_elo(self, team_id: str) -> float | None:
+        return self._elo_map.get(team_id)
 
     def _compute_draw_rate(self) -> float:
         try:

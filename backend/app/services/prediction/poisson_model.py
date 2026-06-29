@@ -109,6 +109,8 @@ class PoissonModel(PredictionModel):
 
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
+        # Preload team strengths — avoids 2 DB queries per predict_match() call.
+        self._strength_map: dict[str, tuple[float, float]] = self._load_strength_map()
 
     # ------------------------------------------------------------------
     # Public API
@@ -132,30 +134,37 @@ class PoissonModel(PredictionModel):
     # Shared helpers used by subclass
     # ------------------------------------------------------------------
 
-    def _get_strength(self, team_id: str) -> tuple[float, float, bool]:
-        """Return (attack, defense, found) for a team."""
+    def _load_strength_map(self) -> dict[str, tuple[float, float]]:
+        """Load all team strengths into memory (most recent per team)."""
         try:
-            row = self._conn.execute(
+            rows = self._conn.execute(
                 """
-                SELECT attack_strength, defense_vulnerability
-                FROM team_strengths
-                WHERE team_id = ?
-                ORDER BY computed_at DESC
-                LIMIT 1
-                """,
-                (team_id,),
-            ).fetchone()
+                SELECT ts.team_id, ts.attack_strength, ts.defense_vulnerability
+                FROM team_strengths ts
+                INNER JOIN (
+                    SELECT team_id, MAX(computed_at) AS max_at
+                    FROM team_strengths GROUP BY team_id
+                ) latest ON ts.team_id = latest.team_id
+                         AND ts.computed_at = latest.max_at
+                """
+            ).fetchall()
+            return {
+                r["team_id"]: (float(r["attack_strength"]), float(r["defense_vulnerability"]))
+                for r in rows
+            }
         except Exception as exc:
-            logger.warning("PoissonModel: DB error for strengths of %s: %s", team_id, exc)
-            return _DEFAULT_STRENGTH, _DEFAULT_STRENGTH, False
+            logger.warning("PoissonModel: failed to preload strength map: %s", exc)
+            return {}
 
-        if row is None:
+    def _get_strength(self, team_id: str) -> tuple[float, float, bool]:
+        """Return (attack, defense, found) for a team from preloaded map."""
+        entry = self._strength_map.get(team_id)
+        if entry is None:
             logger.warning(
                 "PoissonModel: no strength data for team %s — using defaults", team_id
             )
             return _DEFAULT_STRENGTH, _DEFAULT_STRENGTH, False
-
-        return float(row["attack_strength"]), float(row["defense_vulnerability"]), True
+        return entry[0], entry[1], True
 
     def _compute_lambdas(
         self,

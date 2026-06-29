@@ -234,10 +234,9 @@ class TestPoissonContextInjury:
         conn.commit()
 
         from app.services.prediction.poisson_context import PoissonContextModel
-        model = PoissonContextModel(conn)
 
-        # Prediction without any injuries
-        pred_before = model.predict_match("HOME", "AWAY")
+        # Prediction without any injuries — model loads empty injury map
+        pred_before = PoissonContextModel(conn).predict_match("HOME", "AWAY")
 
         # Insert an injury claim for the home team (affects_prediction=1)
         conn.execute(
@@ -250,8 +249,8 @@ class TestPoissonContextInjury:
         )
         conn.commit()
 
-        # Prediction with injury in place
-        pred_after = model.predict_match("HOME", "AWAY")
+        # New model instance picks up the injury in __init__ preload
+        pred_after = PoissonContextModel(conn).predict_match("HOME", "AWAY")
 
         assert pred_after["expected_home_goals"] < pred_before["expected_home_goals"], (
             f"Injury should reduce lam_home: "
