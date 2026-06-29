@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 import uuid
 from typing import Any
@@ -77,7 +78,9 @@ class ResultRepository:
         self._c = conn
 
     def insert(self, result: dict[str, Any]) -> None:
-        result.setdefault("id", str(uuid.uuid4()))
+        if "id" not in result or not result["id"]:
+            key = f"{result['home_team_id']}|{result['away_team_id']}|{result['match_date']}"
+            result["id"] = hashlib.sha1(key.encode()).hexdigest()[:16]
         self._c.execute(
             """
             INSERT OR IGNORE INTO results

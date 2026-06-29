@@ -107,7 +107,20 @@ def db_ml() -> sqlite3.Connection:
     for i, (hg, ag) in enumerate(outcomes):
         home = "BRA" if i % 2 == 0 else "ARG"
         away = "SMR" if i % 3 != 0 else "ARG"
-        _insert_result(conn, home, away, hg, ag, year=2020 + (i // 12))
+        # Use unique date per match to satisfy UNIQUE(home, away, date) constraint
+        month = (i % 11) + 1
+        day   = (i % 28) + 1
+        year  = 2020 + (i // 12)
+        conn.execute(
+            "INSERT OR IGNORE INTO results "
+            "(id, home_team_id, away_team_id, home_goals, away_goals, match_date, outcome, is_wc) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 0)",
+            (
+                str(uuid.uuid4()), home, away, hg, ag,
+                f"{year}-{month:02d}-{day:02d}",
+                "W" if hg > ag else ("D" if hg == ag else "L"),
+            ),
+        )
 
     conn.commit()
     yield conn

@@ -50,15 +50,23 @@ def _insert_elo(conn, team_id: str, value: float) -> None:
     )
 
 
+_result_counter: int = 0
+
+
 def _insert_result(conn, home_id: str, away_id: str, hg: int, ag: int) -> None:
+    global _result_counter
+    _result_counter += 1
     outcome = "W" if hg > ag else ("D" if hg == ag else "L")
+    # Unique date per call to satisfy UNIQUE(home, away, date) constraint
+    day = (_result_counter % 28) + 1
+    month = ((_result_counter // 28) % 12) + 1
     conn.execute(
         """
-        INSERT INTO results
+        INSERT OR IGNORE INTO results
             (id, home_team_id, away_team_id, home_goals, away_goals, match_date, outcome)
-        VALUES (?, ?, ?, ?, ?, '2024-06-01', ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
-        (str(uuid.uuid4()), home_id, away_id, hg, ag, outcome),
+        (str(uuid.uuid4()), home_id, away_id, hg, ag, f"2024-{month:02d}-{day:02d}", outcome),
     )
 
 

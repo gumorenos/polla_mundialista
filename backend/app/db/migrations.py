@@ -767,6 +767,14 @@ def _m018_wc2026_squads(conn: sqlite3.Connection) -> None:
     )
 
 
+def _m022_results_unique_index(conn: sqlite3.Connection) -> None:
+    """Unique constraint on (home_team_id, away_team_id, match_date) to prevent duplicate results."""
+    conn.executescript(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_results_unique_match "
+        "ON results(home_team_id, away_team_id, match_date);"
+    )
+
+
 def _m021_teams_is_wc2026(conn: sqlite3.Connection) -> None:
     """Add is_wc2026 flag to teams; mark existing WC2026 qualifiers (those with a code)."""
     _add_col(conn, "teams", "is_wc2026", "INTEGER NOT NULL DEFAULT 0")
@@ -797,6 +805,7 @@ _MIGRATIONS = [
     _m019_jobs_cancelling_requested_at,
     _m020_wc2026_standings,
     _m021_teams_is_wc2026,
+    _m022_results_unique_index,
 ]
 
 
