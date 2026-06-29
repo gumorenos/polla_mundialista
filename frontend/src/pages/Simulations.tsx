@@ -85,8 +85,12 @@ function ComparisonTable({ teams, models }: { teams: SimulationComparisonTeam[];
 
   const teamsWithAvg = teams.map((team) => {
     const vals = models.map((m) => team[m as keyof SimulationComparisonTeam] as number | null)
-    const present = vals.filter((v): v is number => v !== null)
-    const avg = present.length > 0 ? present.reduce((a, b) => a + b, 0) / present.length : null
+    const presentFiltered = vals.filter(
+      (v, i): v is number => v !== null && models[i] !== 'baseline'
+    )
+    const avg = presentFiltered.length > 0
+      ? presentFiltered.reduce((a, b) => a + b, 0) / presentFiltered.length
+      : null
     return { team, vals, avg }
   })
 
@@ -124,7 +128,7 @@ function ComparisonTable({ teams, models }: { teams: SimulationComparisonTeam[];
             {models.map((m) => (
               <th
                 key={m}
-                className={`${thClass} ${m === 'consensus' ? 'bg-indigo-950/40 border-l border-indigo-800/50 text-indigo-300' : ''}`}
+                className={`${thClass} ${m === 'consensus' ? 'bg-indigo-950/40 border-l border-indigo-800/50 text-indigo-300' : ''} ${m === 'baseline' ? 'opacity-50 italic' : ''}`}
                 onClick={() => handleSort(m)}
               >
                 {MODEL_LABELS[m] ?? m}{arrow(m)}
@@ -147,6 +151,7 @@ function ComparisonTable({ teams, models }: { teams: SimulationComparisonTeam[];
                   const isMax = val !== null && val === max
                   const isMin = val !== null && val === min && presentVals.length > 1
                   const isConsensus = models[mi] === 'consensus'
+                  const isBaseline = models[mi] === 'baseline'
                   return (
                     <td
                       key={models[mi]}
@@ -154,7 +159,7 @@ function ComparisonTable({ teams, models }: { teams: SimulationComparisonTeam[];
                         isConsensus
                           ? 'bg-indigo-950/40 border-l border-indigo-800/50 font-semibold'
                           : ''
-                      } ${
+                      } ${isBaseline ? 'opacity-50' : ''} ${
                         val === null
                           ? 'text-gray-600'
                           : isConsensus

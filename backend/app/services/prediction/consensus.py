@@ -14,7 +14,9 @@ from app.services.prediction.base import PredictionModel
 
 logger = logging.getLogger(__name__)
 
-_MODEL_NAMES = ["baseline", "elo", "poisson", "poisson_context", "ml_calibrated"]
+_MODEL_NAMES = ["elo", "poisson", "poisson_context", "ml_calibrated"]
+# Baseline excluido: asigna probabilidades iguales a todos los partidos
+# sin importar equipos — distorsiona el ensemble hacia la media global.
 
 _AGG_COLS = [
     "win_tournament", "reach_final", "reach_semi_final",
@@ -44,7 +46,7 @@ def compute_consensus_from_results(conn: sqlite3.Connection) -> dict[str, dict]:
         FROM simulation_team_results str
         JOIN simulation_runs sr ON str.simulation_run_id = sr.id
         WHERE sr.status     = 'completed'
-          AND sr.model_name IN ('baseline','elo','poisson','poisson_context','ml_calibrated')
+          AND sr.model_name IN ('elo','poisson','poisson_context','ml_calibrated')
           AND sr.finished_at = (
               SELECT MAX(sr2.finished_at)
               FROM simulation_runs sr2
@@ -124,7 +126,7 @@ def get_consensus_weights(conn: sqlite3.Connection) -> dict[str, float]:
         """
         SELECT model_name, AVG(brier_score) AS avg_brier
         FROM model_evaluations
-        WHERE model_name IN ('baseline','elo','poisson','poisson_context','ml_calibrated')
+        WHERE model_name IN ('elo','poisson','poisson_context','ml_calibrated')
           AND brier_score IS NOT NULL
           AND brier_score > 0
         GROUP BY model_name

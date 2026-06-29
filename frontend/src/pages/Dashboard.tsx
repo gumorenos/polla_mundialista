@@ -12,6 +12,15 @@ import {
 import { useAuth } from '../hooks/useAuth'
 import type { ModelMetrics, OddsValueTeam, TeamResult } from '../types'
 
+const MODEL_LABELS: Record<string, string> = {
+  baseline: 'Baseline',
+  elo: 'ELO',
+  poisson: 'Poisson',
+  poisson_context: 'Poisson+Ctx',
+  ml_calibrated: 'ML Calibrado',
+  consensus: 'Consenso',
+}
+
 function MetricCard({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="rounded-lg border border-gray-800 bg-gray-900 p-4">
@@ -28,7 +37,13 @@ function fmt(n: number | null | undefined) {
 
 export default function Dashboard() {
   const { data: metrics, isLoading: metricsLoading } = useModelsComparison()
-  const { data: sim } = useSimulations('poisson')
+
+  const bestModel: ModelMetrics | undefined = [...(metrics ?? [])].sort(
+    (a, b) => (a.brier_score ?? 1) - (b.brier_score ?? 1),
+  )[0]
+  const topModel = bestModel?.model_name ?? 'consensus'
+
+  const { data: sim } = useSimulations(topModel)
   const fullRefresh = useTriggerFullRefresh()
   const dailyUpdate = useTriggerDailyUpdate()
   const adminReset = useAdminReset()
@@ -48,10 +63,6 @@ export default function Dashboard() {
   const [pendingSim, setPendingSim] = useState<string | null>(null)
   const runId = sim?.run.id ?? null
   const tournamentNarrative = useTournamentNarrative(showAnalysis ? runId : null)
-
-  const bestModel: ModelMetrics | undefined = [...(metrics ?? [])].sort(
-    (a, b) => (a.brier_score ?? 1) - (b.brier_score ?? 1),
-  )[0]
 
   const top5: TeamResult[] = [...(sim?.team_results ?? [])]
     .sort((a, b) => b.win_tournament - a.win_tournament)
@@ -218,7 +229,7 @@ export default function Dashboard() {
       {/* Top 5 champion probabilities */}
       <div>
         <h3 className="mb-3 text-sm font-semibold text-gray-300 uppercase tracking-wider">
-          Top 5 — Probabilidad de campeonato (Poisson)
+          Top 5 — Probabilidad de campeonato ({MODEL_LABELS[topModel] ?? topModel})
         </h3>
         {top5.length === 0 ? (
           <p className="text-sm text-gray-500">
