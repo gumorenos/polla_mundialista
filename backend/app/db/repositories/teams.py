@@ -29,13 +29,14 @@ class TeamRepository:
         team.setdefault("id", str(uuid.uuid4()))
         self._c.execute(
             """
-            INSERT INTO teams (id, name, code, confederation, is_host)
-            VALUES (:id, :name, :code, :confederation, :is_host)
+            INSERT INTO teams (id, name, code, confederation, is_host, is_wc2026)
+            VALUES (:id, :name, :code, :confederation, :is_host, :is_wc2026)
             ON CONFLICT(id) DO UPDATE SET
                 name          = excluded.name,
                 code          = excluded.code,
                 confederation = excluded.confederation,
                 is_host       = excluded.is_host,
+                is_wc2026     = excluded.is_wc2026,
                 updated_at    = strftime('%Y-%m-%dT%H:%M:%SZ','now')
             """,
             {
@@ -44,6 +45,7 @@ class TeamRepository:
                 "code": team.get("code"),
                 "confederation": team.get("confederation"),
                 "is_host": int(team.get("is_host", False)),
+                "is_wc2026": int(team.get("is_wc2026", 0)),
             },
         )
 

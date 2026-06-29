@@ -767,6 +767,14 @@ def _m018_wc2026_squads(conn: sqlite3.Connection) -> None:
     )
 
 
+def _m021_teams_is_wc2026(conn: sqlite3.Connection) -> None:
+    """Add is_wc2026 flag to teams; mark existing WC2026 qualifiers (those with a code)."""
+    _add_col(conn, "teams", "is_wc2026", "INTEGER NOT NULL DEFAULT 0")
+    conn.execute(
+        "UPDATE teams SET is_wc2026 = 1 WHERE code IS NOT NULL AND code != ''"
+    )
+
+
 _MIGRATIONS = [
     _m001_create_all_tables,
     _m002_jobs_extend_schema,
@@ -788,6 +796,7 @@ _MIGRATIONS = [
     _m018_wc2026_squads,
     _m019_jobs_cancelling_requested_at,
     _m020_wc2026_standings,
+    _m021_teams_is_wc2026,
 ]
 
 

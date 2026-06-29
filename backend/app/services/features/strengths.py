@@ -292,8 +292,8 @@ def calculate_team_strengths(
 # ---------------------------------------------------------------------------
 
 def _load_teams(conn: sqlite3.Connection) -> dict[str, str]:
-    """Return {team_id: team_name} for all teams in DB."""
-    rows = conn.execute("SELECT id, name FROM teams").fetchall()
+    """Return {team_id: team_name} for WC2026 qualifiers only."""
+    rows = conn.execute("SELECT id, name FROM teams WHERE is_wc2026 = 1").fetchall()
     return {r["id"]: r["name"] for r in rows}
 
 
@@ -336,8 +336,8 @@ def _load_results(conn: sqlite3.Connection, cutoff_iso: str) -> list[sqlite3.Row
         WHERE match_date <= ?
           AND home_goals IS NOT NULL
           AND away_goals IS NOT NULL
-          AND home_team_id IN (SELECT id FROM teams)
-          AND away_team_id IN (SELECT id FROM teams)
+          AND home_team_id IN (SELECT id FROM teams WHERE is_wc2026 = 1)
+          AND away_team_id IN (SELECT id FROM teams WHERE is_wc2026 = 1)
         ORDER BY match_date ASC
         """,
         (cutoff_iso,),

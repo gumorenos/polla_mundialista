@@ -51,7 +51,7 @@ def _make_minimal_db() -> sqlite3.Connection:
     ]
     for tid, name in teams:
         conn.execute(
-            "INSERT INTO teams (id, name) VALUES (?, ?)", (tid, name)
+            "INSERT INTO teams (id, name, is_wc2026) VALUES (?, ?, 1)", (tid, name)
         )
 
     # Two matches: T1 vs T2 and T2 vs T3
@@ -82,7 +82,7 @@ class TestAllTeamsGetEntry:
 
         team_ids = {
             r["id"]
-            for r in db_with_data.execute("SELECT id FROM teams").fetchall()
+            for r in db_with_data.execute("SELECT id FROM teams WHERE is_wc2026 = 1").fetchall()
         }
         repo = StrengthRepository(db_with_data)
         strength_ids = {s["team_id"] for s in repo.get_all()}
@@ -172,7 +172,7 @@ class TestNoHistoryTeam:
         run_migrations(conn)
 
         # Insert one team with NO results
-        conn.execute("INSERT INTO teams (id, name) VALUES ('LONE', 'Lonelyland FC')")
+        conn.execute("INSERT INTO teams (id, name, is_wc2026) VALUES ('LONE', 'Lonelyland FC', 1)")
         conn.commit()
 
         result = calculate_team_strengths(conn)
@@ -193,7 +193,7 @@ class TestNoHistoryTeam:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys=ON")
         run_migrations(conn)
-        conn.execute("INSERT INTO teams (id, name) VALUES ('GHOST', 'Ghost United')")
+        conn.execute("INSERT INTO teams (id, name, is_wc2026) VALUES ('GHOST', 'Ghost United', 1)")
         conn.commit()
 
         try:

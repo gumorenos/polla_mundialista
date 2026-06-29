@@ -93,6 +93,7 @@ def load_teams_from_csv(
                     "name":          str(row["name"]).strip(),
                     "code":          str(row.get("country_code", "")).strip() or None,
                     "confederation": str(row.get("confederation", "")).strip() or None,
+                    "is_wc2026":     1,
                 })
                 count += 1
             except Exception as exc:
