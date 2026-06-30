@@ -17,7 +17,7 @@ from app.core.limiter import limiter
 from app.db.connection import db_transaction
 from app.db.repositories.jobs import JobRepository
 from app.db.repositories.simulations import SimulationRepository
-from app.workers.tasks import run_simulation_task
+from app.workers.tasks import run_bracket_simulation_task, run_simulation_task
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/simulations", tags=["simulations"])
@@ -474,6 +474,84 @@ def get_simulation(run_id: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # GET /api/simulations/{run_id}/bracket
 # ---------------------------------------------------------------------------
+
+@router.post("/bracket/run", dependencies=[Depends(require_admin)])
+@limiter.limit(settings.RATE_LIMIT_ADMIN)
+def enqueue_bracket_simulation(request: Request, model: ModelName = Query(default="elo")) -> dict[str, Any]:
+    """Enqueue a live-bracket simulation (real R32 qualifiers + pending matches only)."""
+    with db_transaction() as conn:
+        job_repo = JobRepository(conn)
+        job_id = job_repo.create({
+            "job_type": f"bracket_{model}",
+            "status":   "enqueued",
+            "progress": 0.0,
+        })
+        conn.commit()
+
+    redis_conn = Redis.from_url(settings.REDIS_URL)
+    q = Queue("long", connection=redis_conn)
+    rq_job = q.enqueue(
+        run_bracket_simulation_task,
+        model,
+        job_id,
+        job_timeout=settings.RQ_LONG_TIMEOUT,
+    )
+
+    try:
+        with db_transaction() as conn:
+            JobRepository(conn).update_rq_job_id(job_id, rq_job.id)
+            conn.commit()
+    except Exception:
+        logger.exception("Bracket job enqueued in RQ but rq_job_id update failed: db_job=%s rq=%s", job_id, rq_job.id)
+
+    return {
+        "job_id":     job_id,
+        "rq_job_id":  rq_job.id,
+        "model_name": model,
+        "status":     "enqueued",
+    }
+
+
+# ---------------------------------------------------------------------------
+# GET /api/simulations/bracket
+# ---------------------------------------------------------------------------
+
+@router.get("/bracket")
+def get_bracket_simulation(model: ModelName = Query(default="elo")) -> dict[str, Any]:
+    """Return live-bracket probabilities for a model, grouped by round and team."""
+    with db_transaction() as conn:
+        rows = conn.execute(
+            """
+            SELECT bs.round_name, bs.team_id, t.name AS team_name,
+                   bs.advance_prob, bs.opponent_id, o.name AS opponent_name,
+                   bs.match_win_prob, bs.is_eliminated, bs.computed_at
+            FROM bracket_simulations bs
+            JOIN teams t ON t.id = bs.team_id
+            LEFT JOIN teams o ON o.id = bs.opponent_id
+            WHERE bs.model_name = ?
+            ORDER BY bs.round_name, bs.advance_prob DESC
+            """,
+            (model,),
+        ).fetchall()
+
+    if not rows:
+        return {"model": model, "rounds": {}, "computed_at": None}
+
+    rounds: dict[str, list[dict[str, Any]]] = {}
+    computed_at = rows[0]["computed_at"]
+    for r in rows:
+        rounds.setdefault(r["round_name"], []).append({
+            "team_id":        r["team_id"],
+            "team_name":      r["team_name"],
+            "advance_prob":   round(float(r["advance_prob"]), 4),
+            "opponent_id":    r["opponent_id"],
+            "opponent_name":  r["opponent_name"],
+            "match_win_prob": round(float(r["match_win_prob"]), 4) if r["match_win_prob"] is not None else None,
+            "is_eliminated":  bool(r["is_eliminated"]),
+        })
+
+    return {"model": model, "rounds": rounds, "computed_at": computed_at}
+
 
 @router.get("/{run_id}/bracket")
 def get_bracket(run_id: str) -> dict[str, Any]:

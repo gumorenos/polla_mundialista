@@ -405,4 +405,16 @@ def run_daily_update(
     summary["features"] = {"n_teams": len(strengths)}
     _progress(1.0)
 
+    # Step 4 — Live bracket simulation (fault-tolerant, no-op pre-knockout)
+    try:
+        from app.services.simulation.bracket_simulator import run_bracket_simulation
+        bracket_summary = {}
+        for m in ["elo", "consensus"]:  # modelos rápidos, recalcular automático
+            bracket_summary[m] = len(run_bracket_simulation(db_conn, m))
+        summary["bracket_simulations"] = bracket_summary
+        logger.info("daily_update: bracket simulations actualizadas")
+    except Exception as exc:
+        logger.warning("daily_update: bracket simulation falló: %s", exc)
+        summary["bracket_simulations"] = {"status": "failed", "error": str(exc)}
+
     return summary

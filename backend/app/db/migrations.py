@@ -792,6 +792,30 @@ def _m021_teams_is_wc2026(conn: sqlite3.Connection) -> None:
     )
 
 
+def _m023_bracket_simulations(conn: sqlite3.Connection) -> None:
+    """Live bracket simulator results — Monte Carlo from real R32 qualifiers."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS bracket_simulations (
+            id            TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+            model_name    TEXT NOT NULL,
+            round_name    TEXT NOT NULL,
+            team_id       TEXT NOT NULL REFERENCES teams(id),
+            advance_prob  REAL NOT NULL,
+            opponent_id   TEXT,
+            match_win_prob REAL,
+            is_eliminated INTEGER DEFAULT 0,
+            computed_at   TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(model_name, round_name, team_id)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_bracket_sim_model_round "
+        "ON bracket_simulations(model_name, round_name)"
+    )
+
+
 _MIGRATIONS = [
     _m001_create_all_tables,
     _m002_jobs_extend_schema,
@@ -815,6 +839,7 @@ _MIGRATIONS = [
     _m020_wc2026_standings,
     _m021_teams_is_wc2026,
     _m022_results_unique_index,
+    _m023_bracket_simulations,
 ]
 
 

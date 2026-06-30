@@ -106,6 +106,38 @@ export function useTeamStats(model = 'poisson') {
   return useSimulations(model)
 }
 
+export interface BracketSimTeam {
+  team_id: string
+  team_name: string
+  advance_prob: number
+  opponent_id: string | null
+  opponent_name: string | null
+  match_win_prob: number | null
+  is_eliminated: boolean
+}
+
+export interface BracketSimulationResponse {
+  model: string
+  rounds: Record<string, BracketSimTeam[]>
+  computed_at: string | null
+}
+
+export function useBracketSimulation(model = 'elo') {
+  return useQuery<BracketSimulationResponse>({
+    queryKey: ['bracket-simulation', model],
+    queryFn: () => api.get<BracketSimulationResponse>(`/api/simulations/bracket?model=${encodeURIComponent(model)}`),
+    retry: false,
+  })
+}
+
+export function useRunBracketSimulation() {
+  const qc = useQueryClient()
+  return useMutation<EnqueueResponse, Error, string>({
+    mutationFn: (model) => api.post<EnqueueResponse>(`/api/simulations/bracket/run?model=${encodeURIComponent(model)}`, {}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['jobs'] }),
+  })
+}
+
 export function useAuthStatus() {
   return useQuery<{ authenticated: boolean; must_change_password: boolean }>({
     queryKey: ['auth-status'],

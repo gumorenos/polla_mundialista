@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from 'recharts'
-import { useRunSimulation, useSimulations, useSimulationComparison, useSimulationDiff, useShapGlobal, useShapMatch, useTeamNarrative, useOddsValue, useEloHistory, useTeamContext } from '../api/hooks'
+import { useRunSimulation, useSimulations, useSimulationComparison, useSimulationDiff, useShapGlobal, useShapMatch, useTeamNarrative, useOddsValue, useEloHistory, useTeamContext, useBracketSimulation, useRunBracketSimulation } from '../api/hooks'
+import type { BracketSimTeam } from '../api/hooks'
 import type { TeamContext } from '../api/hooks'
 import type { TeamResult, SimulationComparisonTeam, SimulationDiffTeam, ShapFactor, OddsValueTeam } from '../types'
 import { TeamEvolutionChart } from '../components/TeamEvolutionChart'
@@ -702,16 +703,60 @@ function OddsValueTable({ teams, updatedAt }: { teams: OddsValueTeam[]; updatedA
   )
 }
 
+const BRACKET_ROUND_ORDER = ['round_of_32', 'round_of_16', 'quarterfinals', 'semifinals', 'final', 'champion']
+const BRACKET_ROUND_LABELS: Record<string, string> = {
+  round_of_32: 'Dieciseisavos',
+  round_of_16: 'Octavos',
+  quarterfinals: 'Cuartos',
+  semifinals: 'Semifinal',
+  final: 'Final',
+  champion: 'Campeón',
+}
+
+function BracketRoundTable({ teams }: { teams: BracketSimTeam[] }) {
+  const sorted = [...teams].sort((a, b) => b.advance_prob - a.advance_prob)
+  return (
+    <table className="w-full text-sm">
+      <thead>
+        <tr className="border-b border-gray-800 text-left text-xs text-gray-500">
+          <th className="pb-2 font-medium">Selección</th>
+          <th className="pb-2 font-medium text-right">Prob. avance</th>
+          <th className="pb-2 font-medium">Próximo rival</th>
+          <th className="pb-2 font-medium text-right">Prob. partido</th>
+        </tr>
+      </thead>
+      <tbody>
+        {sorted.map((t) => (
+          <tr key={t.team_id} className={`border-b border-gray-800/50 ${t.is_eliminated ? 'opacity-40' : ''}`}>
+            <td className="py-2 font-medium text-white">
+              {t.team_name}
+              {t.is_eliminated && <span className="ml-2 text-xs text-red-400">eliminado</span>}
+            </td>
+            <td className="py-2 text-right text-blue-400">{(t.advance_prob * 100).toFixed(1)}%</td>
+            <td className="py-2 text-gray-400">{t.opponent_name ?? '—'}</td>
+            <td className="py-2 text-right text-gray-300">
+              {t.match_win_prob != null ? (t.match_win_prob * 100).toFixed(1) + '%' : '—'}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
 export default function Simulations() {
-  const [tab, setTab] = useState<'individual' | 'comparar' | 'mercado'>('individual')
+  const [tab, setTab] = useState<'individual' | 'comparar' | 'mercado' | 'bracket'>('individual')
   const [model, setModel] = useState('poisson')
   const [marketModel, setMarketModel] = useState('elo')
+  const [bracketModel, setBracketModel] = useState('elo')
   const [drawerTeam, setDrawerTeam] = useState<TeamResult | null>(null)
   const { data, isLoading, error } = useSimulations(model)
   const runSim = useRunSimulation()
   const comparison = useSimulationComparison()
   const diff = useSimulationDiff(model)
   const oddsValue = useOddsValue(marketModel)
+  const bracketSim = useBracketSimulation(bracketModel)
+  const runBracketSim = useRunBracketSimulation()
 
   const modelsWithData = comparison.data
     ? comparison.data.models.filter((m) =>
@@ -762,6 +807,7 @@ export default function Simulations() {
           ['individual', 'Por modelo'],
           ['comparar',   'Comparar modelos'],
           ['mercado',    'vs. Mercado'],
+          ['bracket',    'Bracket en vivo'],
         ] as const).map(([t, label]) => (
           <button
             key={t}
@@ -914,6 +960,74 @@ export default function Simulations() {
               </div>
               <ComparisonTable teams={comparison.data.teams} models={comparison.data.models} />
             </>
+          )}
+        </>
+      )}
+
+      {/* Live bracket view */}
+      {tab === 'bracket' && (
+        <>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <label className="text-sm text-gray-400">Modelo:</label>
+            <select
+              value={bracketModel}
+              onChange={(e) => setBracketModel(e.target.value)}
+              className="rounded border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200 w-full sm:w-auto min-h-[44px]"
+            >
+              {MODELS.map((m) => (
+                <option key={m} value={m}>
+                  {MODEL_LABELS[m] ?? m}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={() => runBracketSim.mutate(bracketModel)}
+              disabled={runBracketSim.isPending}
+              className="rounded bg-blue-700 px-4 py-2 text-sm text-white hover:bg-blue-600 disabled:opacity-50 min-h-[44px]"
+            >
+              {runBracketSim.isPending ? 'Encolando…' : 'Simular bracket'}
+            </button>
+          </div>
+
+          {runBracketSim.isSuccess && (
+            <div className="rounded bg-green-900/40 border border-green-800 px-4 py-2 text-sm text-green-300">
+              Simulación de bracket encolada — job_id: {runBracketSim.data.job_id}
+            </div>
+          )}
+
+          <p className="text-xs text-gray-500">
+            Parte de los clasificados reales a dieciseisavos y respeta los resultados de
+            eliminación ya jugados — solo simula Monte Carlo los partidos pendientes.
+          </p>
+
+          {bracketSim.isLoading && <p className="text-gray-400">Cargando bracket…</p>}
+          {bracketSim.error && (
+            <p className="text-yellow-400">Sin simulación de bracket disponible para este modelo.</p>
+          )}
+          {bracketSim.data && Object.keys(bracketSim.data.rounds).length === 0 && (
+            <p className="text-yellow-400 text-sm">
+              Aún no hay datos — el torneo no ha completado la fase de grupos, o no se ha
+              corrido la simulación de bracket todavía.
+            </p>
+          )}
+          {bracketSim.data && Object.keys(bracketSim.data.rounds).length > 0 && (
+            <div className="space-y-6">
+              {bracketSim.data.computed_at && (
+                <p className="text-xs text-gray-600">
+                  Calculado: {new Date(bracketSim.data.computed_at).toLocaleString()}
+                </p>
+              )}
+              {BRACKET_ROUND_ORDER.filter((r) => bracketSim.data!.rounds[r]?.length).map((round) => (
+                <div key={round}>
+                  <h3 className="mb-2 text-sm font-semibold text-gray-300 uppercase tracking-wider">
+                    {BRACKET_ROUND_LABELS[round] ?? round}
+                  </h3>
+                  <div className="overflow-x-auto">
+                    <BracketRoundTable teams={bracketSim.data!.rounds[round]} />
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
         </>
       )}
