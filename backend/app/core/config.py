@@ -149,6 +149,7 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     RATE_LIMIT_PUBLIC: str = "60/minute"
     RATE_LIMIT_ADMIN: str = "10/minute"
+    RATE_LIMIT_PUBLIC_API: str = "60/minute"
 
     # ------------------------------------------------------------------
     # Scheduler

@@ -816,6 +816,25 @@ def _m023_bracket_simulations(conn: sqlite3.Connection) -> None:
     )
 
 
+def _m024_api_keys(conn: sqlite3.Connection) -> None:
+    """API keys for the public read-only namespace (/api/public/v1/*)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS api_keys (
+            id           TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+            key_hash     TEXT NOT NULL UNIQUE,
+            label        TEXT NOT NULL,
+            created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+            last_used_at TEXT,
+            revoked      INTEGER DEFAULT 0
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash)"
+    )
+
+
 _MIGRATIONS = [
     _m001_create_all_tables,
     _m002_jobs_extend_schema,
@@ -840,6 +859,7 @@ _MIGRATIONS = [
     _m021_teams_is_wc2026,
     _m022_results_unique_index,
     _m023_bracket_simulations,
+    _m024_api_keys,
 ]
 
 
