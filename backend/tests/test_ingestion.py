@@ -107,6 +107,31 @@ class TestLoadTeams:
 # 2. load_historical_results_from_csv — ≥ 500 matches, valid data
 # ---------------------------------------------------------------------------
 
+class TestIsWcTagging:
+    """is_wc must only mark real World Cup *finals* matches (any edition),
+    never qualifying campaigns whose tournament name also contains 'WC20'
+    — that mislabeling let the live bracket simulator treat a qualifier
+    between two WC2026 finalists as a decided knockout result."""
+
+    def test_qualifier_tournament_not_tagged_as_wc(self, db_loaded, tmp_path):
+        from app.services.ingestion.csv_loader import load_historical_results_from_csv
+
+        csv_path = tmp_path / "historical_results.csv"
+        csv_path.write_text(
+            "date,home_team,away_team,home_goals,away_goals,tournament,neutral\n"
+            "2022-11-20,Qatar,Ecuador,0,2,WC2022,1\n"
+            "2024-09-05,Saudi Arabia,Ivory Coast,1,1,AFC Qualifiers WC2026,0\n"
+        )
+        load_historical_results_from_csv(csv_path=csv_path, conn=db_loaded)
+
+        rows = db_loaded.execute(
+            "SELECT tournament, is_wc FROM results ORDER BY match_date"
+        ).fetchall()
+        by_tournament = {r["tournament"]: r["is_wc"] for r in rows}
+        assert by_tournament["WC2022"] == 1
+        assert by_tournament["AFC Qualifiers WC2026"] == 0
+
+
 class TestLoadHistoricalResults:
     def test_loads_at_least_500_matches(self, db_loaded):
         from app.services.ingestion.csv_loader import load_historical_results_from_csv

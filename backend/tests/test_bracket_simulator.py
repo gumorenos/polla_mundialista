@@ -130,6 +130,26 @@ class TestLoadKnockoutWinners:
         assert load_knockout_winners(conn, {"A1", "B1"}) == {}
         conn.close()
 
+    def test_mistagged_pre_finals_wc_result_ignored(self):
+        """Defense in depth: even if is_wc=1 (e.g. a qualifier mistagged by
+        the ingestion substring bug), a result dated before the WC2026
+        finals start must never be treated as a decided knockout match —
+        this is what let the live bracket get contaminated after ingestion."""
+        conn = _make_db()
+        for tid in ("A1", "B1"):
+            conn.execute("INSERT INTO teams (id, name) VALUES (?, ?)", (tid, tid))
+        conn.execute(
+            """
+            INSERT INTO results
+                (id, home_team_id, away_team_id, home_goals, away_goals,
+                 match_date, is_wc)
+            VALUES ('r1', 'A1', 'B1', 3, 1, '2024-09-05', 1)
+            """
+        )
+        conn.commit()
+        assert load_knockout_winners(conn, {"A1", "B1"}) == {}
+        conn.close()
+
     def test_non_wc_result_ignored(self):
         """A friendly between the same two teams must not be treated as a knockout result."""
         conn = _make_db()

@@ -33,6 +33,7 @@ from app.services.simulation.constants import (
     ROUND_R32,
     ROUND_RUNNER_UP,
     ROUND_SF,
+    WC2026_START_DATE,
 )
 
 logger = logging.getLogger(__name__)
@@ -55,7 +56,7 @@ _ACHIEVED_RANK = {
 }
 
 
-_WC2026_START_DATE = "2026-06-11"
+_WC2026_START_DATE = WC2026_START_DATE
 _FIXTURES_PER_GROUP = 6
 
 
@@ -204,6 +205,11 @@ def load_knockout_winners(
 
     Matches tied on goals (likely decided by penalties, which `results`
     does not record) are skipped — treated as not-yet-resolved.
+
+    Requires match_date >= WC2026_START_DATE in addition to is_wc=1: a
+    mislabeled qualifier/friendly between two teams that both happen to be
+    real WC2026 finalists (is_wc tagging bug in ingestion) must never be
+    treated as a decided knockout result just because the team pair matches.
     """
     if not qualifier_ids:
         return {}
@@ -218,8 +224,9 @@ def load_knockout_winners(
           AND home_team_id IN ({placeholders})
           AND away_team_id IN ({placeholders})
           AND home_goals IS NOT NULL AND away_goals IS NOT NULL
+          AND match_date >= ?
         """,
-        ids + ids,
+        ids + ids + [_WC2026_START_DATE],
     ).fetchall()
 
     winners: dict[frozenset[str], str] = {}

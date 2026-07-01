@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+# First possible finals kickoff — anything dated before this is a qualifier/
+# friendly, never a real WC2026 finals match, regardless of tournament label.
+WC2026_START_DATE = "2026-06-11"
+
 # WC2026 group composition — official draw (Dec 2025), tournament start Jun 11 2026
 GROUPS_2026: dict[str, list[str]] = {
     "A": ["MEX", "KOR", "RSA", "CZE"],

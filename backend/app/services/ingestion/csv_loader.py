@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sqlite3
 from datetime import date, datetime
 from pathlib import Path
@@ -251,7 +252,12 @@ def load_historical_results_from_csv(
                 outcome = "D"
 
             tourn = str(row.get("tournament", "")).strip()
-            is_wc = int("WC20" in tourn)
+            # "WC20" substring alone also matches qualifying campaigns like
+            # "AFC Qualifiers WC2026" or "CONMEBOL Qualifiers WC2026" — those
+            # are not World Cup finals matches and must not be tagged is_wc,
+            # since the live bracket simulator treats any is_wc=1 result
+            # between two real finalists as a decided knockout match.
+            is_wc = int("WC20" in tourn and not re.search(r"qualif|clasificat", tourn, re.IGNORECASE))
 
             try:
                 result_repo.insert({
