@@ -58,6 +58,25 @@ _ROUND_TO_COL: dict[str, str] = {
     ROUND_FOURTH:    "reach_semi_final",
 }
 
+# WC2026Bracket.rounds_reached stores the round a team was ELIMINATED IN
+# (or ROUND_CHAMPION/ROUND_RUNNER_UP for finalists) — a single label per
+# team per iteration, not a cumulative "reached" flag. To turn that into
+# cumulative reach_X probabilities (reach_quarter_final implies having
+# already passed round_of_16, etc.) we rank each exit label and bump every
+# column at or below that rank. ROUND_R32 (eliminated in R32) ranks 0 —
+# it does NOT imply reaching R16, unlike reach_round_of_32 itself which is
+# equivalent to having qualified from groups (tracked separately below).
+_EXIT_RANK: dict[str, int] = {
+    ROUND_R32:       0,
+    ROUND_R16:       1,
+    ROUND_QF:        2,
+    ROUND_SF:        3,
+    ROUND_THIRD:     3,  # lost SF, then played (and won/lost) 3rd-place match
+    ROUND_FOURTH:    3,
+    ROUND_RUNNER_UP: 4,
+    ROUND_CHAMPION:  4,  # champion also satisfies "reached final"
+}
+
 
 def run_monte_carlo(
     model_name: str,
@@ -175,16 +194,19 @@ def run_monte_carlo(
                         group_win_count[tid] += 1
                     qualify_count[tid] += 1
 
-                # Accumulate round-reach counts
+                # Accumulate cumulative round-reach counts (see _EXIT_RANK).
                 for tid, rnd in rounds_reached.items():
-                    rounds_count[tid][rnd] += 1
-                    if rnd in (ROUND_CHAMPION, ROUND_RUNNER_UP,
-                               ROUND_THIRD, ROUND_FOURTH, ROUND_SF):
+                    rank = _EXIT_RANK.get(rnd)
+                    if rank is None:
+                        continue  # eliminated in group stage — never reached R16+
+                    if rank >= 1:
+                        rounds_count[tid][ROUND_R16] += 1
+                    if rank >= 2:
+                        rounds_count[tid][ROUND_QF] += 1
+                    if rank >= 3:
                         rounds_count[tid][ROUND_SF] += 1
-                    if rnd in (ROUND_CHAMPION, ROUND_RUNNER_UP):
+                    if rank >= 4:
                         rounds_count[tid][ROUND_FINAL] += 1
-                    if rnd == ROUND_CHAMPION:
-                        rounds_count[tid][ROUND_CHAMPION] += 1
 
             completed += batch_iters
             progress = completed / n_iter
@@ -223,7 +245,9 @@ def run_monte_carlo(
                     "team_id":             tid,
                     "win_group":           group_win_count[tid] / total,
                     "qualify":             qualify_count[tid]   / total,
-                    "reach_round_of_32":   (rc.get(ROUND_R32, 0) + qualify_count[tid]) / total,
+                    # Reaching R32 IS qualifying from groups — don't also add
+                    # rc[ROUND_R32] (times eliminated in R32), which double-counts.
+                    "reach_round_of_32":   qualify_count[tid]   / total,
                     "reach_round_of_16":   rc.get(ROUND_R16, 0)  / total,
                     "reach_quarter_final": rc.get(ROUND_QF,  0)  / total,
                     "reach_semi_final":    rc.get(ROUND_SF,  0)  / total,
@@ -464,7 +488,7 @@ def _persist_partial_results(
                 "team_id":             tid,
                 "win_group":           group_win_count[tid] / total,
                 "qualify":             qualify_count[tid]   / total,
-                "reach_round_of_32":   (rc.get(ROUND_R32, 0) + qualify_count[tid]) / total,
+                "reach_round_of_32":   qualify_count[tid]   / total,
                 "reach_round_of_16":   rc.get(ROUND_R16, 0)  / total,
                 "reach_quarter_final": rc.get(ROUND_QF,  0)  / total,
                 "reach_semi_final":    rc.get(ROUND_SF,  0)  / total,

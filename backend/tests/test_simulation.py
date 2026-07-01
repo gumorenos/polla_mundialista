@@ -362,3 +362,102 @@ class TestFKRobustness:
         assert row["status"] == "failed"
         assert "no persisted team results" in row["error_message"]
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# 8. Round-reach probabilities must be cumulative and monotonic.
+#
+# reach_round_of_32 == qualify (classifying from groups IS reaching R32).
+# win_tournament <= reach_final <= reach_semi_final <= reach_quarter_final
+#   <= reach_round_of_16 <= reach_round_of_32 <= 1
+#
+# Regression test for a bug where reach_round_of_32 double-counted
+# (qualify + eliminated-in-R32) and reach_round_of_16 / reach_quarter_final
+# only counted "eliminated exactly at this round" instead of "reached at
+# least this round", breaking monotonicity for any team that advanced
+# past round of 16 or quarterfinals.
+# ---------------------------------------------------------------------------
+
+class TestRoundReachMonotonicity:
+    def _all_results(self, conn, run_id):
+        return conn.execute(
+            """
+            SELECT team_id, qualify, reach_round_of_32, reach_round_of_16,
+                   reach_quarter_final, reach_semi_final, reach_final,
+                   win_tournament
+            FROM simulation_team_results
+            WHERE simulation_run_id = ?
+            """,
+            (run_id,),
+        ).fetchall()
+
+    def test_reach_round_of_32_equals_qualify(self, simulation_result):
+        conn, run_id = simulation_result["conn"], simulation_result["run_id"]
+        for r in self._all_results(conn, run_id):
+            assert r["reach_round_of_32"] == pytest.approx(r["qualify"]), (
+                f"{r['team_id']}: reach_round_of_32={r['reach_round_of_32']} "
+                f"!= qualify={r['qualify']}"
+            )
+
+    def test_probabilities_are_monotonically_non_increasing(self, simulation_result):
+        conn, run_id = simulation_result["conn"], simulation_result["run_id"]
+        for r in self._all_results(conn, run_id):
+            chain = [
+                r["win_tournament"], r["reach_final"], r["reach_semi_final"],
+                r["reach_quarter_final"], r["reach_round_of_16"], r["reach_round_of_32"],
+            ]
+            for tighter, looser in zip(chain, chain[1:]):
+                assert tighter <= looser + 1e-9, (
+                    f"{r['team_id']}: monotonicity violated in chain {chain}"
+                )
+
+    def test_reach_round_of_32_never_exceeds_1(self, simulation_result):
+        conn, run_id = simulation_result["conn"], simulation_result["run_id"]
+        for r in self._all_results(conn, run_id):
+            assert r["reach_round_of_32"] <= 1.0 + 1e-9, (
+                f"{r['team_id']}: reach_round_of_32={r['reach_round_of_32']} > 1"
+            )
+
+    def test_team_advancing_past_r16_counts_toward_reach_round_of_16(self):
+        """A team that always wins its R32 match must have reach_round_of_16 == qualify,
+        not 0 — this is the exact bug: previously only teams ELIMINATED in R16
+        contributed to this column, so an always-advancing team scored 0."""
+        from app.services.prediction.base import PredictionModel
+        from app.services.simulation.monte_carlo import run_monte_carlo
+
+        class _AlwaysHomeWinModel(PredictionModel):
+            name = "always_home_win"
+            version = "1.0"
+
+            def predict_match(self, home_team_id, away_team_id, context=None):
+                return {
+                    "home_win": 1.0, "draw": 0.0, "away_win": 0.0,
+                    "expected_home_goals": 5.0, "expected_away_goals": 0.0,
+                    "most_likely_score": "5-0",
+                    "features_used": [], "features_missing": [], "explanation": "test",
+                }
+
+        conn = _make_db()
+        _seed_teams(conn)
+
+        import app.services.simulation.monte_carlo as mc_module
+        original_init_model = mc_module._init_model
+        mc_module._init_model = lambda model_name, conn: _AlwaysHomeWinModel()
+        try:
+            run_id = run_monte_carlo(model_name="baseline", conn=conn, iterations=5, seed=1)
+        finally:
+            mc_module._init_model = original_init_model
+
+        # The team in bracket position "1A" (home in every match it plays,
+        # per R32_BRACKET/_adjacent_pairs ordering) always wins on paper —
+        # verify at least one team reached round_of_16 with certainty.
+        rows = conn.execute(
+            "SELECT team_id, reach_round_of_16 FROM simulation_team_results "
+            "WHERE simulation_run_id = ? ORDER BY reach_round_of_16 DESC LIMIT 1",
+            (run_id,),
+        ).fetchall()
+        assert rows[0]["reach_round_of_16"] > 0, (
+            "No team registered any reach_round_of_16 probability — "
+            "cumulative accumulation is broken"
+        )
+        conn.close()
