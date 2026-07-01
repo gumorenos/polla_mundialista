@@ -23,7 +23,6 @@ def start_scheduler() -> None:
 
     from app.core.config import settings
     from app.scheduler.jobs import (
-        enqueue_daily_simulations,
         enqueue_full_refresh,
         enqueue_news_update,
         fetch_odds_job,
@@ -56,15 +55,11 @@ def start_scheduler() -> None:
         replace_existing=True,
         misfire_grace_time=3600,
     )
-    # Daily simulations at 4:30am — 30 min after full_refresh (4am) to allow
-    # the data pipeline to complete on ARM64 before simulations start.
-    s.add_job(
-        enqueue_daily_simulations,
-        CronTrigger.from_crontab("30 4 * * *"),
-        id="daily_simulations",
-        replace_existing=True,
-        misfire_grace_time=3600,
-    )
+    # Monte Carlo simulations (30k iterations, up to 1h each) are intentionally
+    # NOT scheduled here — full_refresh/daily_update only prepare data.
+    # Simulations are triggered manually from the UI (see Dashboard.tsx) or the
+    # lightweight BracketSimulator, which IS auto-run inside daily_update
+    # (real R32 qualifiers only, ~seconds, not a full-tournament MC).
     # check_and_snapshot (pre-match simulations) intentionally removed —
     # simulations are run on-demand from the UI only.
     # FIX 3: reconcile abandoned RQ jobs every 5 minutes

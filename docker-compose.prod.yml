@@ -105,6 +105,7 @@ services:
       - ./data/raw:/app/data/raw:ro
       - exports_data:/app/data/exports
       - models_data:/app/data/models
+      - /home/ubuntu/proyectos/statsbomb-data/data:/home/ubuntu/proyectos/statsbomb-data/data:ro
     networks:
       - internal
     healthcheck:
