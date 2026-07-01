@@ -101,6 +101,20 @@ function TeamSummaryCard({ team }: { team: NewsTeamSummary }) {
           {defenseImpact && <span>Defensa: <span className="text-red-400">+{defenseImpact}%</span></span>}
         </div>
       )}
+      {team.source_url ? (
+        <a
+          href={team.source_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs text-blue-400 hover:underline"
+        >
+          Ver fuente{team.source_name ? ` (${team.source_name})` : ''}
+        </a>
+      ) : (
+        <p className="text-xs text-gray-500 italic">
+          {team.source_note ?? 'Fuente no enlazada'}
+        </p>
+      )}
     </div>
   )
 }
@@ -143,6 +157,17 @@ function SuspensionCard({ team }: { team: SuspensionTeamSummary }) {
 // ---------------------------------------------------------------------------
 
 function PlayerFormCard({ team }: { team: PlayerFormTeam }) {
+  if (!team.key_player) {
+    return (
+      <div className="rounded-lg border border-gray-800 bg-gray-900/40 p-4 space-y-1">
+        <span className="font-semibold text-white text-sm">{team.team_name}</span>
+        <p className="text-xs text-gray-500 italic">
+          {team.squad_warning ?? 'No hay jugadores clave disponibles con la fuente actual.'}
+        </p>
+      </div>
+    )
+  }
+
   return (
     <div className="rounded-lg border border-gray-700 bg-gray-900/60 p-4 space-y-2">
       <div className="flex items-center justify-between">
@@ -166,11 +191,16 @@ function PlayerFormCard({ team }: { team: PlayerFormTeam }) {
       <p className="text-xs text-gray-400">
         Jugador clave: <span className="text-gray-200 font-medium">{team.key_player}</span>
       </p>
-      <p className="text-xs text-gray-500">
-        Últimos {team.matches_used} partidos disponibles:{' '}
-        <span className="text-gray-300">{team.avg_xg.toFixed(2)} xG promedio</span>
-        {' · '}forma {team.form_rating.toFixed(2)}x
-      </p>
+      {team.matches_used != null && team.avg_xg != null && (
+        <p className="text-xs text-gray-500">
+          Últimos {team.matches_used} partidos disponibles:{' '}
+          <span className="text-gray-300">{team.avg_xg.toFixed(2)} xG promedio</span>
+          {team.form_rating != null && <>{' · '}forma {team.form_rating.toFixed(2)}x</>}
+        </p>
+      )}
+      {team.uses_fallback_player_pool && team.squad_warning && (
+        <p className="text-xs text-yellow-500 italic">{team.squad_warning}</p>
+      )}
     </div>
   )
 }
@@ -415,13 +445,19 @@ export default function News() {
       {playerForm.data && playerForm.data.teams.length > 0 && (
         <div>
           <h3 className="text-sm font-semibold uppercase tracking-wider text-gray-400 mb-3">
-            Forma individual — jugador clave ({playerForm.data.teams.length} equipos con datos StatsBomb)
+            Forma individual — jugador clave ({playerForm.data.key_players_count} de {playerForm.data.teams.length} equipos con jugador clave resuelto)
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
             {playerForm.data.teams.map((team) => (
               <PlayerFormCard key={team.team_id} team={team} />
             ))}
           </div>
+        </div>
+      )}
+
+      {playerForm.data && playerForm.data.teams.length === 0 && (
+        <div className="rounded-lg border border-gray-800 px-4 py-3 text-sm text-gray-400">
+          No hay jugadores clave disponibles con la fuente actual.
         </div>
       )}
 

@@ -141,10 +141,25 @@ export interface NewsTeamSummary {
   players_affected: string[]
   attack_factor: number | null
   defense_factor: number | null
+  source_url: string | null
+  source_name: string | null
+  published_at: string | null
+  source_note?: string
 }
 
 export interface NewsSummaryResponse {
   teams: NewsTeamSummary[]
+}
+
+export interface SimulationRunHistoryItem {
+  id: string
+  model_name: string
+  status: 'pending' | 'running' | 'completed' | 'invalid' | 'failed'
+  iterations: number
+  started_at: string | null
+  finished_at: string | null
+  error_message: string | null
+  has_results: number
 }
 
 export interface SimulationDiffTeam {
@@ -346,17 +361,24 @@ export interface SuspensionsResponse {
 export interface PlayerFormTeam {
   team_id: string
   team_name: string
-  key_player: string
-  avg_xg: number
-  avg_goals: number
-  form_rating: number
-  matches_used: number
-  in_form: boolean
-  out_of_form: boolean
+  key_player: string | null
+  avg_xg?: number
+  avg_goals?: number
+  form_rating?: number
+  matches_used?: number
+  in_form?: boolean
+  out_of_form?: boolean
+  squad_status: 'confirmed' | 'missing' | 'partial' | 'error'
+  uses_fallback_player_pool: boolean
+  squad_warning: string | null
 }
 
 export interface PlayerFormResponse {
   teams: PlayerFormTeam[]
+  alive_only: boolean
+  alive_warning: string | null
+  squads_available: number
+  key_players_count: number
 }
 
 export interface EvaluationRadar {

@@ -127,7 +127,10 @@ def news_summary() -> dict[str, Any]:
                 COUNT(DISTINCT ac.player_name) AS injury_count,
                 GROUP_CONCAT(DISTINCT ac.player_name) AS players_affected,
                 tca.attack_factor,
-                tca.defense_factor
+                tca.defense_factor,
+                latest.source_url,
+                latest.source_name,
+                latest.published_at
             FROM availability_claims ac
             LEFT JOIN teams t ON ac.team_id = t.id
             LEFT JOIN (
@@ -140,6 +143,16 @@ def news_summary() -> dict[str, Any]:
                       GROUP BY team_id
                   )
             ) tca ON tca.team_id = ac.team_id
+            LEFT JOIN (
+                SELECT team_id, source_url, source_name, published_at
+                FROM availability_claims
+                WHERE affects_prediction = 1
+                  AND rowid IN (
+                      SELECT MAX(rowid) FROM availability_claims
+                      WHERE affects_prediction = 1
+                      GROUP BY team_id
+                  )
+            ) latest ON latest.team_id = ac.team_id
             WHERE ac.affects_prediction = 1
             GROUP BY ac.team_id
             ORDER BY injury_count DESC
@@ -155,6 +168,8 @@ def news_summary() -> dict[str, Any]:
             ]
         else:
             entry["players_affected"] = []
+        if not entry.get("source_url"):
+            entry["source_note"] = "Sin fuente enlazada en availability_claims"
         teams.append(entry)
 
     return {"teams": teams}
@@ -259,14 +274,36 @@ def get_player_form_summary(
             try:
                 pool = get_key_player_pool(team_id, conn)
                 player_name = _top_xg_player(team_id, conn, pool["players"])
-            except Exception:
+            except Exception as exc:
+                logger.warning("player-form: pool resolution failed for %s: %s", team_id, exc)
+                teams_out.append({
+                    "team_id": team_id, "team_name": t["team_name"], "key_player": None,
+                    "squad_status": "error", "uses_fallback_player_pool": False,
+                    "squad_warning": "Error resolviendo el pool de jugadores para este equipo.",
+                })
                 continue
 
+            # A team is never silently dropped: if we can't resolve a key
+            # player (no squad match, no xG data), it still appears with
+            # key_player=None and a warning explaining why — the frontend
+            # must show that state explicitly instead of the team vanishing.
             if not player_name:
+                teams_out.append({
+                    "team_id": team_id, "team_name": t["team_name"], "key_player": None,
+                    "squad_status": pool["squad_status"],
+                    "uses_fallback_player_pool": pool["squad_status"] == "missing",
+                    "squad_warning": pool["warning"] or "No hay jugador clave disponible con la fuente actual.",
+                })
                 continue
 
             form = get_player_form(player_name, team_id, conn)
             if not form["has_data"]:
+                teams_out.append({
+                    "team_id": team_id, "team_name": t["team_name"], "key_player": player_name,
+                    "squad_status": pool["squad_status"],
+                    "uses_fallback_player_pool": pool["squad_status"] == "missing",
+                    "squad_warning": "Sin datos de forma reciente para este jugador.",
+                })
                 continue
 
             teams_out.append(
@@ -286,7 +323,14 @@ def get_player_form_summary(
                 }
             )
 
-    return {"teams": teams_out, "alive_only": alive_only, "alive_warning": alive_warning}
+    key_players_count = sum(1 for t in teams_out if t.get("key_player"))
+    return {
+        "teams": teams_out,
+        "alive_only": alive_only,
+        "alive_warning": alive_warning,
+        "squads_available": sum(1 for t in teams_out if t["squad_status"] == "confirmed"),
+        "key_players_count": key_players_count,
+    }
 
 
 # ---------------------------------------------------------------------------
