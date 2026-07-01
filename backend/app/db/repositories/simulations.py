@@ -107,6 +107,29 @@ class SimulationRepository:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def list_runs_history(self, model_name: str, limit: int = 20) -> list[dict[str, Any]]:
+        """All runs for a model regardless of status (completed/invalid/
+        failed/running), newest first — for the history/list view, which
+        must never look empty just because the latest runs were flagged
+        invalid by the guardrail script. Unlike get_recent_completed, this
+        does not filter to status='completed'."""
+        rows = self._c.execute(
+            """
+            SELECT sr.id, sr.model_name, sr.status, sr.iterations,
+                   sr.started_at, sr.finished_at, sr.error_message,
+                   EXISTS (
+                       SELECT 1 FROM simulation_team_results str
+                       WHERE str.simulation_run_id = sr.id
+                   ) AS has_results
+            FROM simulation_runs sr
+            WHERE sr.model_name = ?
+            ORDER BY COALESCE(sr.finished_at, sr.started_at) DESC
+            LIMIT ?
+            """,
+            (model_name, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     def get_two_latest_by_model(self, model_name: str) -> list[dict[str, Any]]:
         """Return the two most recent completed simulation runs for a model."""
         rows = self._c.execute(

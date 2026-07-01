@@ -22,6 +22,7 @@ import type {
   FavoriteHistoryResponse,
   SimulationDiff,
   SimulationRequest,
+  SimulationRunHistoryItem,
   SimulationSummary,
   SuspensionsResponse,
   TeamHistoryResponse,
@@ -35,6 +36,14 @@ export function useSimulations(model = 'poisson') {
   return useQuery<SimulationSummary>({
     queryKey: ['simulations', 'latest', model],
     queryFn: () => api.get<SimulationSummary>(`/api/simulations/latest?model=${encodeURIComponent(model)}`),
+    retry: false,
+  })
+}
+
+export function useSimulationRunsHistory(model = 'poisson') {
+  return useQuery<{ model: string; runs: SimulationRunHistoryItem[] }>({
+    queryKey: ['simulations', 'runs', model],
+    queryFn: () => api.get(`/api/simulations/runs?model=${encodeURIComponent(model)}&limit=20`),
     retry: false,
   })
 }

@@ -287,11 +287,38 @@ def get_latest(model: str = Query(default="poisson")) -> dict[str, Any]:
         repo = SimulationRepository(conn)
         run = get_latest_valid_run(conn, model)
         if not run:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"No valid completed simulation found for model '{model}'. Recalcula el modelo.",
+            history = repo.list_runs_history(model, limit=50)
+            n_other = len(history)
+            detail = (
+                f"No hay simulación válida reciente para el modelo '{model}'; "
+                f"existen {n_other} runs inválidos/antiguos. Recalcula el modelo."
+                if n_other else
+                f"No valid completed simulation found for model '{model}'. Recalcula el modelo."
             )
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
         return repo.get_run_summary(run["id"])
+
+
+# ---------------------------------------------------------------------------
+# GET /api/simulations/runs
+# ---------------------------------------------------------------------------
+
+@router.get("/runs")
+def list_simulation_runs(
+    model: str = Query(default="poisson"),
+    limit: int = Query(default=20, ge=1, le=100),
+) -> dict[str, Any]:
+    """History of simulation runs for a model, any status, newest first.
+
+    Unlike /latest (which only ever returns a valid completed run), this
+    never filters out invalid/failed runs — the Simulations screen uses it
+    to show run history with status badges instead of going blank when the
+    guardrail script has invalidated the latest completed runs.
+    """
+    with db_transaction() as conn:
+        repo = SimulationRepository(conn)
+        runs = repo.list_runs_history(model, limit=limit)
+    return {"model": model, "runs": runs}
 
 
 # ---------------------------------------------------------------------------

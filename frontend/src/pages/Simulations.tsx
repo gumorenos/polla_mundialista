@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from 'recharts'
-import { useRunSimulation, useSimulations, useSimulationComparison, useSimulationDiff, useShapGlobal, useShapMatch, useTeamNarrative, useOddsValue, useEloHistory, useTeamContext, useBracketLatest, useBracketRuns, useRunBracketSimulation } from '../api/hooks'
+import { useRunSimulation, useSimulations, useSimulationRunsHistory, useSimulationComparison, useSimulationDiff, useShapGlobal, useShapMatch, useTeamNarrative, useOddsValue, useEloHistory, useTeamContext, useBracketLatest, useBracketRuns, useRunBracketSimulation } from '../api/hooks'
 import type { BracketSimTeam } from '../api/hooks'
 import type { TeamContext } from '../api/hooks'
 import type { TeamResult, SimulationComparisonTeam, SimulationDiffTeam, ShapFactor, OddsValueTeam } from '../types'
@@ -751,6 +751,7 @@ export default function Simulations() {
   const [bracketModel, setBracketModel] = useState('elo')
   const [drawerTeam, setDrawerTeam] = useState<TeamResult | null>(null)
   const { data, isLoading, error } = useSimulations(model)
+  const runsHistory = useSimulationRunsHistory(model)
   const runSim = useRunSimulation()
   const comparison = useSimulationComparison()
   const diff = useSimulationDiff(model)
@@ -835,9 +836,37 @@ export default function Simulations() {
 
           {isLoading && <p className="text-gray-400">Cargando resultados…</p>}
           {error && (
-            <p className="text-yellow-400">
-              Sin simulación completada para el modelo «{MODEL_LABELS[model] ?? model}». Pulsa «Simular» para iniciar una.
-            </p>
+            <div className="space-y-3">
+              <p className="text-yellow-400">
+                {runsHistory.data && runsHistory.data.runs.length > 0
+                  ? `No hay simulación válida reciente para el modelo «${MODEL_LABELS[model] ?? model}»; existen ${runsHistory.data.runs.length} runs inválidos/antiguos. Pulsa «Simular» para generar una nueva.`
+                  : `Sin simulación completada para el modelo «${MODEL_LABELS[model] ?? model}». Pulsa «Simular» para iniciar una.`}
+              </p>
+              {runsHistory.data && runsHistory.data.runs.length > 0 && (
+                <div className="rounded-lg border border-gray-800 divide-y divide-gray-800">
+                  {runsHistory.data.runs.map((run) => (
+                    <div key={run.id} className="flex items-center justify-between px-3 py-2 text-sm">
+                      <span className="text-gray-400">
+                        {run.finished_at ?? run.started_at ?? run.id}
+                      </span>
+                      <span
+                        className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${
+                          run.status === 'completed'
+                            ? 'bg-green-900/60 text-green-300'
+                            : run.status === 'invalid'
+                              ? 'bg-red-900/60 text-red-300'
+                              : run.status === 'running' || run.status === 'pending'
+                                ? 'bg-blue-900/60 text-blue-300'
+                                : 'bg-gray-800 text-gray-400'
+                        }`}
+                      >
+                        {run.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
 
           {data && (
