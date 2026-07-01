@@ -157,6 +157,19 @@ class Settings(BaseSettings):
     SCHEDULER_ENABLED: bool = False  # must be enabled explicitly; only in the scheduler service
     SCHEDULER_FULL_REFRESH_CRON: str = "0 3 * * *"
     SCHEDULER_NEWS_CRON: str = "0 */6 * * *"
+    SCHEDULER_TIMEZONE: str = "UTC"
+    # 08:30 UTC = 03:30 Perú (UTC-5) — daily_update.
+    SCHEDULER_DAILY_UPDATE_CRON: str = "30 8 * * *"
+    # 09:00 UTC = 04:00 Perú — nightly simulations, 30 min after daily_update.
+    SCHEDULER_NIGHTLY_SIMULATIONS_CRON: str = "0 9 * * *"
+    NIGHTLY_RUN_FULL_MONTE_CARLO: bool = True
+    NIGHTLY_RUN_BRACKET: bool = True
+    NIGHTLY_SIMULATION_MODELS: List[str] = Field(
+        default=["elo", "poisson", "poisson_context", "ml_calibrated", "consensus"]
+    )
+    NIGHTLY_BRACKET_MODELS: List[str] = Field(
+        default=["elo", "poisson", "poisson_context", "ml_calibrated", "consensus"]
+    )
 
     # ------------------------------------------------------------------
     # External URLs
@@ -205,6 +218,8 @@ class Settings(BaseSettings):
         "CORS_ORIGINS",
         "FUENTES_CONFIABLES",
         "OPENROUTER_FALLBACK_MODELS",
+        "NIGHTLY_SIMULATION_MODELS",
+        "NIGHTLY_BRACKET_MODELS",
         mode="before",
     )
     @classmethod

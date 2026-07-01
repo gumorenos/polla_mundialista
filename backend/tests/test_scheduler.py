@@ -375,19 +375,29 @@ class TestSchedulerLifecycle:
             sched_mod._scheduler.shutdown(wait=False)
         sched_mod._scheduler = None
 
-    def test_start_registers_three_jobs(self):
+    def test_start_registers_all_jobs(self):
         from app.scheduler.scheduler import get_scheduler, start_scheduler
         start_scheduler()
         s = get_scheduler()
         assert s.running
         job_ids = {j.id for j in s.get_jobs()}
-        assert {"full_refresh", "news_update", "reconcile_jobs", "fetch_odds"} == job_ids
+        assert {
+            "full_refresh", "news_update", "reconcile_jobs", "fetch_odds",
+            "daily_update", "nightly_update_and_simulations",
+        } == job_ids
+
+    def test_daily_update_scheduled_before_nightly_simulations(self):
+        """08:30 UTC (03:30 Perú) daily_update must fire before 09:00 UTC
+        (04:00 Perú) nightly simulations — 30 min head start."""
+        from app.core.config import settings
+        assert settings.SCHEDULER_DAILY_UPDATE_CRON == "30 8 * * *"        # 03:30 Perú
+        assert settings.SCHEDULER_NIGHTLY_SIMULATIONS_CRON == "0 9 * * *"  # 04:00 Perú
 
     def test_start_is_idempotent(self):
         from app.scheduler.scheduler import get_scheduler, start_scheduler
         start_scheduler()
         start_scheduler()
-        assert len(get_scheduler().get_jobs()) == 4
+        assert len(get_scheduler().get_jobs()) == 6
 
     def test_stop_shuts_down_scheduler(self):
         from app.scheduler.scheduler import get_scheduler, start_scheduler, stop_scheduler
