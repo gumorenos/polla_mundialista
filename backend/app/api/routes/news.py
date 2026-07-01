@@ -25,6 +25,7 @@ def list_news(
     team_id: str | None = Query(default=None),
     classification: str | None = Query(default=None, description="injured|doubtful|available|unknown"),
     limit: int = Query(default=50, ge=1, le=200),
+    alive_only: bool = Query(default=True, description="Exclude teams already eliminated from the tournament"),
 ) -> dict[str, Any]:
     """Return latest news/injury claims with optional filters.
 
@@ -41,6 +42,15 @@ def list_news(
         if classification:
             where_clauses.append("ac.status = ?")
             params.append(classification)
+
+        alive_warning = None
+        if alive_only:
+            from app.services.features.alive_teams import get_alive_team_ids
+            alive_ids, alive_warning = get_alive_team_ids(conn)
+            if alive_ids:
+                placeholders = ",".join("?" for _ in alive_ids)
+                where_clauses.append(f"(ac.team_id IS NULL OR ac.team_id IN ({placeholders}))")
+                params.extend(alive_ids)
 
         where_sql = " AND ".join(where_clauses)
         params.append(limit)
@@ -96,6 +106,8 @@ def list_news(
         "items": [dict(r) for r in rows],
         "last_updated": last_updated,
         "total": total,
+        "alive_only": alive_only,
+        "alive_warning": alive_warning,
     }
 
 
@@ -202,13 +214,16 @@ def list_suspensions() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 @router.get("/player-form")
-def get_player_form_summary() -> dict[str, Any]:
+def get_player_form_summary(
+    alive_only: bool = Query(default=True, description="Exclude teams already eliminated from the tournament"),
+) -> dict[str, Any]:
     """Return key-player form data for all teams that have StatsBomb stats.
 
     For each team, finds the player with the most historical xG and returns
     their recent-form metrics derived from the last 5 StatsBomb matches.
     Only teams with StatsBomb data are included in the response.
     """
+    from app.services.features.alive_teams import get_alive_team_ids
     from app.services.features.player_form import _top_xg_player, get_player_form
     from app.services.features.squad_pool import get_key_player_pool
 
@@ -225,9 +240,17 @@ def get_player_form_summary() -> dict[str, Any]:
             logger.warning("player-form: cannot read team list: %s", exc)
             return {"teams": []}
 
+        alive_ids: set[str] = set()
+        alive_warning = None
+        if alive_only:
+            alive_ids, alive_warning = get_alive_team_ids(conn)
+
         teams_out = []
         for t in team_rows:
             team_id = t["team_id"]
+
+            if alive_only and alive_ids and team_id not in alive_ids:
+                continue
 
             # Key player = highest cumulative xG restricted to the real
             # WC2026 squad when known (see get_key_player_pool) — a player
@@ -263,7 +286,7 @@ def get_player_form_summary() -> dict[str, Any]:
                 }
             )
 
-    return {"teams": teams_out}
+    return {"teams": teams_out, "alive_only": alive_only, "alive_warning": alive_warning}
 
 
 # ---------------------------------------------------------------------------
