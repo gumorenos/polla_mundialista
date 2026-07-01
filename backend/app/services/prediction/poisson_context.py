@@ -12,7 +12,11 @@ import logging
 import sqlite3
 
 from app.core.config import settings
-from app.services.prediction.poisson_model import PoissonModel
+from app.services.prediction.poisson_model import (
+    PoissonModel,
+    _elo_attack_defense_prior,
+    _elo_prior_weight,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +29,7 @@ class PoissonContextModel(PoissonModel):
 
     def __init__(self, conn: sqlite3.Connection) -> None:
         super().__init__(conn)  # hereda _strength_map de PoissonModel
-        self._xg_map:         dict[str, tuple[float, float]] = self._load_xg_map()
+        self._xg_map:         dict[str, tuple[float, float, int]] = self._load_xg_map()
         self._injury_map:     dict[str, int]                 = self._load_injury_map()
         self._suspension_map: dict[str, int]                 = self._load_suspension_map()
         self._venue_map:      dict[tuple[str, str], str]     = self._load_venue_map()
@@ -152,10 +156,21 @@ class PoissonContextModel(PoissonModel):
     # ------------------------------------------------------------------
 
     def _get_strength(self, team_id: str) -> tuple[float, float, bool]:
-        """Return (attack, defense, found) preferring preloaded xG over goals-based."""
+        """Return (attack, defense, found) preferring preloaded xG over
+        goals-based strength. The xG sample (StatsBomb historical matches)
+        can be just as small/noisy as the goals-based one — e.g. a team
+        with only 3-4 World Cup matches on record — so it gets the same
+        ELO-prior blend treatment as the base model instead of being used
+        as a raw, unblended override."""
         xg = self._xg_map.get(team_id)
         if xg is not None:
-            return xg[0], xg[1], True
+            atk_xg, def_xg, n = xg
+            elo = self._elo_map.get(team_id)
+            if elo is None or not settings.POISSON_ELO_PRIOR_ENABLED:
+                return atk_xg, def_xg, True
+            w = _elo_prior_weight(n)
+            elo_attack, elo_defense = _elo_attack_defense_prior(elo)
+            return (1 - w) * atk_xg + w * elo_attack, (1 - w) * def_xg + w * elo_defense, True
         return super()._get_strength(team_id)
 
     # ------------------------------------------------------------------
@@ -210,8 +225,10 @@ class PoissonContextModel(PoissonModel):
     # Preload methods — called once in __init__
     # ------------------------------------------------------------------
 
-    def _load_xg_map(self) -> dict[str, tuple[float, float]]:
-        """Load xG-based strengths for all teams with sufficient StatsBomb data."""
+    def _load_xg_map(self) -> dict[str, tuple[float, float, int]]:
+        """Load xG-based strengths for all teams with sufficient StatsBomb
+        data. Keeps the match count (n) so _get_strength can blend with the
+        ELO prior for teams whose xG sample is itself small."""
         try:
             g = self._conn.execute(
                 """SELECT AVG(xg) AS avg_xg, AVG(xg_conceded) AS avg_xgc
@@ -235,13 +252,13 @@ class PoissonContextModel(PoissonModel):
             ).fetchall()
 
             from app.services.features.strengths import _STRENGTH_MIN, _STRENGTH_MAX
-            result: dict[str, tuple[float, float]] = {}
+            result: dict[str, tuple[float, float, int]] = {}
             for r in rows:
                 atk = max(_STRENGTH_MIN, min(_STRENGTH_MAX,
                           float(r["avg_xg"])  / global_avg_xg))
                 def_ = max(_STRENGTH_MIN, min(_STRENGTH_MAX,
                           float(r["avg_xgc"]) / global_avg_xgc))
-                result[r["team_id"]] = (atk, def_)
+                result[r["team_id"]] = (atk, def_, int(r["n"]))
             return result
         except Exception as exc:
             logger.warning("PoissonContext: failed to preload xG map: %s", exc)

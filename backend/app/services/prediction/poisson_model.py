@@ -46,13 +46,19 @@ def _elo_attack_defense_prior(elo: float) -> tuple[float, float]:
 def _elo_prior_weight(matches_used: int) -> float:
     """Blend weight for the ELO prior — POISSON_ELO_PRIOR_WEIGHT once
     matches_used reaches POISSON_ELO_PRIOR_MIN_MATCHES, scaling up toward
-    1.0 (pure ELO prior) as matches_used approaches 0."""
+    POISSON_ELO_PRIOR_MAX_WEIGHT (never a pure ELO prior — some empirical
+    signal is always kept) as matches_used approaches 0. Returns 0.0 when
+    POISSON_ELO_PRIOR_ENABLED is False."""
+    if not settings.POISSON_ELO_PRIOR_ENABLED:
+        return 0.0
     base = settings.POISSON_ELO_PRIOR_WEIGHT
+    max_weight = settings.POISSON_ELO_PRIOR_MAX_WEIGHT
     min_matches = settings.POISSON_ELO_PRIOR_MIN_MATCHES
     if min_matches <= 0 or matches_used >= min_matches:
-        return base
+        return min(base, max_weight)
     frac_missing = 1.0 - (matches_used / min_matches)
-    return base + (1.0 - base) * frac_missing
+    w = base + (1.0 - base) * frac_missing
+    return min(w, max_weight)
 
 
 # ---------------------------------------------------------------------------
@@ -204,7 +210,7 @@ class PoissonModel(PredictionModel):
         elo = self._elo_map.get(team_id)
 
         if entry is None:
-            if elo is not None:
+            if elo is not None and settings.POISSON_ELO_PRIOR_ENABLED:
                 attack, defense = _elo_attack_defense_prior(elo)
                 return attack, defense, True
             logger.warning(

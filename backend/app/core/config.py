@@ -117,8 +117,12 @@ class Settings(BaseSettings):
     # w scales up linearly as matches_used drops below the min threshold;
     # at/above the threshold w == POISSON_ELO_PRIOR_WEIGHT (never zero,
     # so ELO always has *some* influence, just a small one with enough data).
+    POISSON_ELO_PRIOR_ENABLED: bool = True
     POISSON_ELO_PRIOR_WEIGHT: float = 0.25
     POISSON_ELO_PRIOR_MIN_MATCHES: int = 10
+    # Hard cap on the blend weight regardless of how low matches_used gets —
+    # keeps at least some empirical signal even for near-zero-match teams.
+    POISSON_ELO_PRIOR_MAX_WEIGHT: float = 0.85
 
     # ------------------------------------------------------------------
     # Injuries / News
