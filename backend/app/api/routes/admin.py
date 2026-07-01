@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import logging
+import secrets
 from datetime import datetime, timezone
 from typing import Any
 
@@ -16,6 +18,8 @@ from app.workers.tasks import run_ingestion_pipeline, run_news_task
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin", tags=["admin"])
+
+_API_KEY_PREFIX_LEN = 12  # e.g. "om26_ab12cd3" — enough to tell keys apart, never the full key
 
 
 class ResetBody(BaseModel):
@@ -112,3 +116,69 @@ def enqueue_refresh_news(request: Request):
         logger.exception("News refresh enqueued in RQ but rq_job_id update failed: db_job=%s rq=%s", job_id, job.id)
     logger.info("News refresh job enqueued: rq_job=%s db_job=%s", job.id, job_id)
     return {"job_id": job_id, "rq_job_id": job.id, "status": "enqueued", "queue": "news"}
+
+
+# ---------------------------------------------------------------------------
+# Public API key management — /api/admin/api-keys
+# ---------------------------------------------------------------------------
+
+class CreateApiKeyBody(BaseModel):
+    label: str
+    scopes: str = "read"
+    rate_limit_per_minute: int = 60
+    notes: str | None = None
+
+
+@router.get("/api-keys", dependencies=[Depends(require_admin)])
+@limiter.limit(settings.RATE_LIMIT_ADMIN)
+def list_api_keys(request: Request) -> dict[str, Any]:
+    """List public API keys — never returns the raw key or its hash."""
+    from app.db.connection import db_transaction
+    from app.db.repositories.api_keys import ApiKeyRepository
+
+    with db_transaction() as conn:
+        keys = ApiKeyRepository(conn).list_all()
+    return {"keys": keys}
+
+
+@router.post("/api-keys", dependencies=[Depends(require_admin)])
+@limiter.limit(settings.RATE_LIMIT_ADMIN)
+def create_api_key(request: Request, body: CreateApiKeyBody) -> dict[str, Any]:
+    """Create a new public API key. The raw key is returned ONLY in this
+    response — it is never stored or retrievable afterwards, only its hash."""
+    from app.db.connection import db_transaction
+    from app.db.repositories.api_keys import ApiKeyRepository
+
+    raw_key = f"om26_{secrets.token_urlsafe(32)}"
+    key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+    prefix = raw_key[:_API_KEY_PREFIX_LEN]
+
+    with db_transaction() as conn:
+        key_id = ApiKeyRepository(conn).create_with_prefix(
+            key_hash, prefix, body.label,
+            scopes=body.scopes,
+            rate_limit_per_minute=body.rate_limit_per_minute,
+            notes=body.notes,
+        )
+        conn.commit()
+
+    logger.info("Admin created API key id=%s label=%s", key_id, body.label)
+    return {"id": key_id, "key": raw_key, "prefix": prefix, "label": body.label}
+
+
+@router.post("/api-keys/{key_id}/revoke", dependencies=[Depends(require_admin)])
+@limiter.limit(settings.RATE_LIMIT_ADMIN)
+def revoke_api_key(request: Request, key_id: str) -> dict[str, Any]:
+    """Revoke a key — no physical deletion, `revoked` is a one-way flag."""
+    from app.db.connection import db_transaction
+    from app.db.repositories.api_keys import ApiKeyRepository
+
+    with db_transaction() as conn:
+        revoked = ApiKeyRepository(conn).revoke(key_id)
+        conn.commit()
+
+    if not revoked:
+        raise HTTPException(status_code=404, detail="API key not found or already revoked")
+
+    logger.info("Admin revoked API key id=%s", key_id)
+    return {"id": key_id, "revoked": True}

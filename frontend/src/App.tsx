@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import Layout from './components/Layout'
+import ApiKeys from './pages/ApiKeys'
 import Calibration from './pages/Calibration'
 import ChangePassword from './pages/ChangePassword'
 import Config from './pages/Config'
@@ -59,6 +60,7 @@ export default function App() {
           <Route path="jobs" element={<Jobs />} />
           <Route path="news" element={<News />} />
           <Route path="config" element={<Config />} />
+          <Route path="api-keys" element={<ApiKeys />} />
         </Route>
       </Routes>
     </BrowserRouter>

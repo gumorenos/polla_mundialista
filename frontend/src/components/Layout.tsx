@@ -13,6 +13,7 @@ const navItems = [
   { to: '/calibration', label: 'Calibración' },
   { to: '/jobs', label: 'Jobs' },
   { to: '/news', label: 'Noticias' },
+  { to: '/api-keys', label: 'API Keys' },
   { to: '/config', label: '⚙ Configuración' },
 ]
 
