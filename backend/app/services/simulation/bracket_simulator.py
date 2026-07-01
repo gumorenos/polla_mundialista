@@ -265,22 +265,84 @@ def _resolve_pending_matches(
     return eliminated, pending
 
 
+def _try_refresh_standings(conn: sqlite3.Connection) -> str | None:
+    """Best-effort refresh of wc2026_standings from whatever provider is
+    available, so a bracket run doesn't give up just because standings are
+    stale. Returns an ISO timestamp if anything was refreshed, else None."""
+    from datetime import datetime, timezone
+
+    refreshed = False
+    try:
+        from app.services.ingestion.api_football import fetch_wc2026_standings
+        fetch_wc2026_standings(conn)
+        refreshed = True
+    except Exception as exc:
+        logger.debug("_try_refresh_standings: API-Football fetch failed: %s", exc)
+
+    try:
+        from app.services.ingestion.standings_calculator import calculate_standings_from_results
+        calculate_standings_from_results(conn)
+        refreshed = True
+    except Exception as exc:
+        logger.debug("_try_refresh_standings: local calculator failed: %s", exc)
+
+    return datetime.now(timezone.utc).isoformat() if refreshed else None
+
+
+_NO_R32_MESSAGE = (
+    "No hay 32 clasificados definidos todavía. Se actualizó standings, "
+    "pero la fase de grupos sigue incompleta."
+)
+
+
 def run_bracket_simulation(
     conn: sqlite3.Connection,
     model_name: str,
     n_iterations: int = _BRACKET_ITERATIONS,
-) -> dict[str, dict]:
-    """Run Monte Carlo on the live bracket and persist results to
-    bracket_simulations table. Returns summary stats per team."""
+    source: str = "manual",
+) -> dict[str, Any]:
+    """Run Monte Carlo on the live bracket and persist a historical
+    bracket_run + bracket_simulation_results (see db/repositories/bracket.py).
+
+    If the R32 draw isn't resolved yet, makes one best-effort attempt to
+    refresh wc2026_standings before giving up — never fails silently.
+
+    Returns:
+        {
+          "run_id": str,
+          "status": "completed" | "no_r32",
+          "message": str | None,
+          "teams": {team_id: {round_name: advance_prob, ...}},  # {} if no_r32
+        }
+    """
+    from app.db.repositories.bracket import BracketRepository
     from app.services.simulation.monte_carlo import _init_model
 
+    repo = BracketRepository(conn)
+    run_id = repo.create_run(model_name, n_iterations, source=source)
+    conn.commit()
+
     r32 = load_r32_qualifiers(conn)
+    r32_source = "wc2026_standings"
+    r32_fetched_at: str | None = None
+
     if not r32:
-        logger.warning(
-            "run_bracket_simulation: R32 qualifiers not yet determined — "
-            "torneo aún no ha completado fase de grupos"
+        logger.info(
+            "run_bracket_simulation: %s — R32 no resuelto, intentando refrescar standings",
+            model_name,
         )
-        return {}
+        r32_fetched_at = _try_refresh_standings(conn)
+        conn.commit()
+        r32 = load_r32_qualifiers(conn)
+
+    if not r32:
+        repo.finish_run(
+            run_id, status="no_r32", error_message=_NO_R32_MESSAGE,
+            r32_source=r32_source, r32_fetched_at=r32_fetched_at,
+        )
+        conn.commit()
+        logger.warning("run_bracket_simulation: %s — %s", model_name, _NO_R32_MESSAGE)
+        return {"run_id": run_id, "status": "no_r32", "message": _NO_R32_MESSAGE, "teams": {}}
 
     qualifier_ids = set(r32.values())
     winners_by_pair = load_knockout_winners(conn, qualifier_ids)
@@ -297,7 +359,7 @@ def run_bracket_simulation(
 
     eliminated, pending = _resolve_pending_matches(model, r32, winners_by_pair)
 
-    computed_at_rows: list[tuple] = []
+    history_rows: list[tuple] = []
     summary: dict[str, dict] = {}
     for team_id in qualifier_ids:
         counts = achieved_counts.get(team_id, {})
@@ -315,18 +377,84 @@ def run_bracket_simulation(
 
             is_eliminated = 1 if eliminated.get(team_id) == round_name else 0
 
-            computed_at_rows.append((
-                model_name, round_name, team_id, advance_prob,
+            history_rows.append((
+                run_id, model_name, round_name, team_id, advance_prob,
                 opponent_id, match_win_prob, is_eliminated,
             ))
         summary[team_id] = team_summary
 
-    from app.db.repositories.bracket import BracketRepository
-    BracketRepository(conn).upsert_many(computed_at_rows)
+    repo.insert_results(history_rows)
+    repo.finish_run(run_id, status="completed", r32_source=r32_source, r32_fetched_at=r32_fetched_at)
     conn.commit()
 
     logger.info(
-        "run_bracket_simulation: %s — %d equipos, %d iteraciones persistidas",
-        model_name, len(summary), n_iterations,
+        "run_bracket_simulation: %s — run_id=%s %d equipos, %d iteraciones persistidas",
+        model_name, run_id, len(summary), n_iterations,
     )
-    return summary
+    return {"run_id": run_id, "status": "completed", "message": None, "teams": summary}
+
+
+_NO_RUN_YET_MESSAGE = "No se ha corrido ninguna simulación de bracket para este modelo todavía."
+
+
+def get_latest_bracket_view(conn: sqlite3.Connection, model_name: str) -> dict:
+    """Build the 'latest bracket' response shared by internal and public
+    endpoints: {model, run_id, status, rounds, computed_at, message, meta}.
+
+    status is one of:
+      "completed" — a finished run exists, rounds/computed_at are populated.
+      "no_r32"    — the most recent attempt found no R32 draw yet.
+      None        — no bracket run has ever been attempted for this model.
+    """
+    from app.db.repositories.bracket import BracketRepository
+
+    repo = BracketRepository(conn)
+    run = repo.get_latest_completed_run(model_name)
+
+    if run is None:
+        latest_any = repo.get_latest_run(model_name)
+        if latest_any is not None:
+            return {
+                "model": model_name,
+                "run_id": None,
+                "status": latest_any["status"],
+                "rounds": {},
+                "computed_at": None,
+                "message": latest_any.get("error_message") or _NO_R32_MESSAGE,
+                "meta": {
+                    "iterations": latest_any["iterations"],
+                    "r32_source": latest_any["r32_source"],
+                    "r32_fetched_at": latest_any["r32_fetched_at"],
+                },
+            }
+        return {
+            "model": model_name, "run_id": None, "status": None,
+            "rounds": {}, "computed_at": None, "message": _NO_RUN_YET_MESSAGE,
+            "meta": {},
+        }
+
+    rounds: dict[str, list[dict]] = {}
+    for r in repo.get_run_results(run["id"]):
+        rounds.setdefault(r["round_name"], []).append({
+            "team_id":        r["team_id"],
+            "team_name":      r["team_name"],
+            "advance_prob":   round(float(r["advance_prob"]), 4),
+            "opponent_id":    r["opponent_id"],
+            "opponent_name":  r["opponent_name"],
+            "match_win_prob": round(float(r["match_win_prob"]), 4) if r["match_win_prob"] is not None else None,
+            "is_eliminated":  bool(r["is_eliminated"]),
+        })
+
+    return {
+        "model": model_name,
+        "run_id": run["id"],
+        "status": "completed",
+        "rounds": rounds,
+        "computed_at": run["finished_at"],
+        "message": None,
+        "meta": {
+            "iterations": run["iterations"],
+            "r32_source": run["r32_source"],
+            "r32_fetched_at": run["r32_fetched_at"],
+        },
+    }

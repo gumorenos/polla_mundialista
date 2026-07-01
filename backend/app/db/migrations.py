@@ -835,6 +835,62 @@ def _m024_api_keys(conn: sqlite3.Connection) -> None:
     )
 
 
+def _m025_bracket_runs(conn: sqlite3.Connection) -> None:
+    """Historical bracket-simulation runs — bracket_simulations only kept the
+    latest state per (model, round, team), so every re-run overwrote history.
+    bracket_runs + bracket_simulation_results preserve one row set per run."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS bracket_runs (
+            id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+            model_name      TEXT NOT NULL,
+            status          TEXT NOT NULL DEFAULT 'pending',
+            iterations      INTEGER DEFAULT 10000,
+            source          TEXT DEFAULT 'manual',
+            r32_source      TEXT,
+            r32_fetched_at  TEXT,
+            started_at      TEXT,
+            finished_at     TEXT,
+            error_message   TEXT,
+            created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_bracket_runs_model "
+        "ON bracket_runs(model_name, created_at DESC)"
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS bracket_simulation_results (
+            id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+            bracket_run_id  TEXT NOT NULL REFERENCES bracket_runs(id),
+            model_name      TEXT NOT NULL,
+            round_name      TEXT NOT NULL,
+            team_id         TEXT NOT NULL REFERENCES teams(id),
+            advance_prob    REAL NOT NULL,
+            opponent_id     TEXT,
+            match_win_prob  REAL,
+            is_eliminated   INTEGER DEFAULT 0,
+            computed_at     TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_bracket_sim_results_run "
+        "ON bracket_simulation_results(bracket_run_id)"
+    )
+
+
+def _m026_api_keys_management(conn: sqlite3.Connection) -> None:
+    """Admin-manageable API key metadata — prefix for display, scopes, per-key
+    rate limit override, and free-form notes. Never stores the raw key."""
+    _add_col(conn, "api_keys", "prefix", "TEXT")
+    _add_col(conn, "api_keys", "scopes", "TEXT DEFAULT 'read'")
+    _add_col(conn, "api_keys", "rate_limit_per_minute", "INTEGER DEFAULT 60")
+    _add_col(conn, "api_keys", "notes", "TEXT")
+
+
 _MIGRATIONS = [
     _m001_create_all_tables,
     _m002_jobs_extend_schema,
@@ -860,6 +916,8 @@ _MIGRATIONS = [
     _m022_results_unique_index,
     _m023_bracket_simulations,
     _m024_api_keys,
+    _m025_bracket_runs,
+    _m026_api_keys_management,
 ]
 
 

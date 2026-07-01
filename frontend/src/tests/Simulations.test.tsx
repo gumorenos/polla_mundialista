@@ -25,8 +25,9 @@ vi.mock('../api/hooks', () => ({
   useTeamNarrative: () => ({ data: null, isLoading: false, error: null }),
   useOddsValue: () => ({ data: null, isLoading: false, error: null }),
   useEloHistory: () => ({ data: null, isLoading: false, error: null }),
-  useBracketSimulation: () => ({ data: null, isLoading: false, error: null }),
-  useRunBracketSimulation: () => ({ mutate: vi.fn(), isPending: false, isSuccess: false, data: null }),
+  useBracketLatest: () => ({ data: null, isLoading: false, error: null }),
+  useBracketRuns: () => ({ data: null, isLoading: false, error: null }),
+  useRunBracketSimulation: () => ({ mutate: vi.fn(), isPending: false, isSuccess: false, isError: false, data: null }),
 }))
 
 describe('Simulations', () => {

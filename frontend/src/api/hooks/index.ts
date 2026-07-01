@@ -122,6 +122,35 @@ export interface BracketSimulationResponse {
   computed_at: string | null
 }
 
+/** GET /api/simulations/bracket/latest — new contract with run_id/status/message/meta. */
+export interface BracketLatestResponse {
+  model: string
+  run_id: string | null
+  status: 'completed' | 'no_r32' | null
+  rounds: Record<string, BracketSimTeam[]>
+  computed_at: string | null
+  message: string | null
+  meta: {
+    iterations?: number
+    r32_source?: string | null
+    r32_fetched_at?: string | null
+  }
+}
+
+export interface BracketRun {
+  id: string
+  model_name: string
+  status: string
+  iterations: number
+  source: string
+  r32_source: string | null
+  r32_fetched_at: string | null
+  started_at: string | null
+  finished_at: string | null
+  error_message: string | null
+  created_at: string
+}
+
 export function useBracketSimulation(model = 'elo') {
   return useQuery<BracketSimulationResponse>({
     queryKey: ['bracket-simulation', model],
@@ -130,11 +159,31 @@ export function useBracketSimulation(model = 'elo') {
   })
 }
 
+export function useBracketLatest(model = 'elo') {
+  return useQuery<BracketLatestResponse>({
+    queryKey: ['bracket-latest', model],
+    queryFn: () => api.get<BracketLatestResponse>(`/api/simulations/bracket/latest?model=${encodeURIComponent(model)}`),
+    retry: false,
+  })
+}
+
+export function useBracketRuns(model = 'elo', limit = 20) {
+  return useQuery<{ model: string; runs: BracketRun[] }>({
+    queryKey: ['bracket-runs', model, limit],
+    queryFn: () => api.get(`/api/simulations/bracket/runs?model=${encodeURIComponent(model)}&limit=${limit}`),
+    retry: false,
+  })
+}
+
 export function useRunBracketSimulation() {
   const qc = useQueryClient()
   return useMutation<EnqueueResponse, Error, string>({
     mutationFn: (model) => api.post<EnqueueResponse>(`/api/simulations/bracket/run?model=${encodeURIComponent(model)}`, {}),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['jobs'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['jobs'] })
+      qc.invalidateQueries({ queryKey: ['bracket-latest'] })
+      qc.invalidateQueries({ queryKey: ['bracket-runs'] })
+    },
   })
 }
 
@@ -447,5 +496,58 @@ export function useResetConfig() {
   return useMutation<AppConfigEntry[], Error, void>({
     mutationFn: () => api.post<AppConfigEntry[]>('/api/config/reset', {}),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['app-config'] }),
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Public API key admin management
+// ---------------------------------------------------------------------------
+
+export interface ApiKeyRecord {
+  id: string
+  prefix: string
+  label: string
+  scopes: string
+  rate_limit_per_minute: number
+  notes: string | null
+  created_at: string
+  last_used_at: string | null
+  revoked: number
+}
+
+export function useApiKeys() {
+  return useQuery<{ keys: ApiKeyRecord[] }>({
+    queryKey: ['api-keys'],
+    queryFn: () => api.get('/api/admin/api-keys'),
+  })
+}
+
+export interface CreateApiKeyRequest {
+  label: string
+  scopes?: string
+  rate_limit_per_minute?: number
+  notes?: string
+}
+
+export interface CreateApiKeyResponse {
+  id: string
+  key: string
+  prefix: string
+  label: string
+}
+
+export function useCreateApiKey() {
+  const qc = useQueryClient()
+  return useMutation<CreateApiKeyResponse, Error, CreateApiKeyRequest>({
+    mutationFn: (body) => api.post<CreateApiKeyResponse>('/api/admin/api-keys', body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['api-keys'] }),
+  })
+}
+
+export function useRevokeApiKey() {
+  const qc = useQueryClient()
+  return useMutation<{ id: string; revoked: boolean }, Error, string>({
+    mutationFn: (id) => api.post(`/api/admin/api-keys/${id}/revoke`, {}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['api-keys'] }),
   })
 }

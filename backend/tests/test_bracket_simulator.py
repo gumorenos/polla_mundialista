@@ -187,22 +187,51 @@ class TestBracketSimulatorRespectsPlayedResults:
 
 
 class TestRunBracketSimulationPersists:
-    def test_no_qualifiers_returns_empty_and_does_not_crash(self):
+    def test_no_qualifiers_returns_no_r32_status(self):
         conn = _make_db()
-        summary = run_bracket_simulation(conn, "baseline", n_iterations=10)
-        assert summary == {}
+        result = run_bracket_simulation(conn, "baseline", n_iterations=10)
+        assert result["status"] == "no_r32"
+        assert result["teams"] == {}
+        assert result["run_id"] is not None
+        assert "clasificados" in result["message"]
+
+        run_row = conn.execute(
+            "SELECT status, error_message FROM bracket_runs WHERE id = ?", (result["run_id"],)
+        ).fetchone()
+        assert run_row["status"] == "no_r32"
+        assert run_row["error_message"] == result["message"]
         conn.close()
 
     def test_persists_rows_for_all_32_qualifiers(self):
         conn = _make_db()
         _seed_complete_groups(conn)
-        summary = run_bracket_simulation(conn, "baseline", n_iterations=50)
-        assert len(summary) == 32
+        result = run_bracket_simulation(conn, "baseline", n_iterations=50)
+        assert result["status"] == "completed"
+        assert len(result["teams"]) == 32
 
         rows = conn.execute(
-            "SELECT DISTINCT team_id FROM bracket_simulations WHERE model_name = 'baseline'"
+            "SELECT DISTINCT team_id FROM bracket_simulation_results WHERE bracket_run_id = ?",
+            (result["run_id"],),
         ).fetchall()
         assert len(rows) == 32
+
+        run_row = conn.execute(
+            "SELECT status, r32_source FROM bracket_runs WHERE id = ?", (result["run_id"],)
+        ).fetchone()
+        assert run_row["status"] == "completed"
+        assert run_row["r32_source"] == "wc2026_standings"
+
+    def test_two_runs_of_same_model_produce_distinct_run_ids_and_keep_history(self):
+        conn = _make_db()
+        _seed_complete_groups(conn)
+        r1 = run_bracket_simulation(conn, "baseline", n_iterations=20)
+        r2 = run_bracket_simulation(conn, "baseline", n_iterations=20)
+        assert r1["run_id"] != r2["run_id"]
+
+        run_count = conn.execute(
+            "SELECT COUNT(*) c FROM bracket_runs WHERE model_name = 'baseline'"
+        ).fetchone()["c"]
+        assert run_count == 2
 
     def test_real_loser_marked_eliminated_in_correct_round(self):
         conn = _make_db()
@@ -220,14 +249,15 @@ class TestRunBracketSimulationPersists:
         )
         conn.commit()
 
-        run_bracket_simulation(conn, "baseline", n_iterations=30)
+        result = run_bracket_simulation(conn, "baseline", n_iterations=30)
+        run_id = result["run_id"]
 
         row = conn.execute(
             """
-            SELECT advance_prob, is_eliminated FROM bracket_simulations
-            WHERE model_name = 'baseline' AND team_id = ? AND round_name = 'round_of_32'
+            SELECT advance_prob, is_eliminated FROM bracket_simulation_results
+            WHERE bracket_run_id = ? AND team_id = ? AND round_name = 'round_of_32'
             """,
-            (home,),
+            (run_id, home),
         ).fetchone()
         assert row["is_eliminated"] == 1
         assert row["advance_prob"] == pytest.approx(1.0)
@@ -236,10 +266,43 @@ class TestRunBracketSimulationPersists:
         for rnd in ("round_of_16", "quarterfinals", "semifinals", "final", "champion"):
             r = conn.execute(
                 """
-                SELECT advance_prob FROM bracket_simulations
-                WHERE model_name = 'baseline' AND team_id = ? AND round_name = ?
+                SELECT advance_prob FROM bracket_simulation_results
+                WHERE bracket_run_id = ? AND team_id = ? AND round_name = ?
                 """,
-                (home, rnd),
+                (run_id, home, rnd),
             ).fetchone()
             assert r["advance_prob"] == pytest.approx(0.0), f"{rnd}: expected 0.0, got {r['advance_prob']}"
+        conn.close()
+
+
+class TestGetLatestBracketView:
+    def test_no_run_ever_attempted(self):
+        from app.services.simulation.bracket_simulator import get_latest_bracket_view
+        conn = _make_db()
+        view = get_latest_bracket_view(conn, "baseline")
+        assert view["status"] is None
+        assert view["run_id"] is None
+        assert view["rounds"] == {}
+        conn.close()
+
+    def test_no_r32_surfaces_clear_message(self):
+        from app.services.simulation.bracket_simulator import get_latest_bracket_view
+        conn = _make_db()
+        run_bracket_simulation(conn, "baseline", n_iterations=5)
+        view = get_latest_bracket_view(conn, "baseline")
+        assert view["status"] == "no_r32"
+        assert "clasificados" in view["message"]
+        conn.close()
+
+    def test_completed_run_returns_rounds_and_meta(self):
+        from app.services.simulation.bracket_simulator import get_latest_bracket_view
+        conn = _make_db()
+        _seed_complete_groups(conn)
+        result = run_bracket_simulation(conn, "baseline", n_iterations=20)
+
+        view = get_latest_bracket_view(conn, "baseline")
+        assert view["status"] == "completed"
+        assert view["run_id"] == result["run_id"]
+        assert "round_of_32" in view["rounds"]
+        assert view["meta"]["iterations"] == 20
         conn.close()

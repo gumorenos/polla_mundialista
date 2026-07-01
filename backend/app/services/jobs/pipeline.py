@@ -410,7 +410,8 @@ def run_daily_update(
         from app.services.simulation.bracket_simulator import run_bracket_simulation
         bracket_summary = {}
         for m in ["elo", "consensus"]:  # modelos rápidos, recalcular automático
-            bracket_summary[m] = len(run_bracket_simulation(db_conn, m))
+            result = run_bracket_simulation(db_conn, m, source="pipeline")
+            bracket_summary[m] = {"status": result["status"], "teams": len(result["teams"])}
         summary["bracket_simulations"] = bracket_summary
         logger.info("daily_update: bracket simulations actualizadas")
     except Exception as exc:

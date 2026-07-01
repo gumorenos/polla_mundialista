@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from 'recharts'
-import { useRunSimulation, useSimulations, useSimulationComparison, useSimulationDiff, useShapGlobal, useShapMatch, useTeamNarrative, useOddsValue, useEloHistory, useTeamContext, useBracketSimulation, useRunBracketSimulation } from '../api/hooks'
+import { useRunSimulation, useSimulations, useSimulationComparison, useSimulationDiff, useShapGlobal, useShapMatch, useTeamNarrative, useOddsValue, useEloHistory, useTeamContext, useBracketLatest, useBracketRuns, useRunBracketSimulation } from '../api/hooks'
 import type { BracketSimTeam } from '../api/hooks'
 import type { TeamContext } from '../api/hooks'
 import type { TeamResult, SimulationComparisonTeam, SimulationDiffTeam, ShapFactor, OddsValueTeam } from '../types'
@@ -755,7 +755,8 @@ export default function Simulations() {
   const comparison = useSimulationComparison()
   const diff = useSimulationDiff(model)
   const oddsValue = useOddsValue(marketModel)
-  const bracketSim = useBracketSimulation(bracketModel)
+  const bracketLatest = useBracketLatest(bracketModel)
+  const bracketRuns = useBracketRuns(bracketModel, 10)
   const runBracketSim = useRunBracketSimulation()
 
   const modelsWithData = comparison.data
@@ -1000,33 +1001,91 @@ export default function Simulations() {
             eliminación ya jugados — solo simula Monte Carlo los partidos pendientes.
           </p>
 
-          {bracketSim.isLoading && <p className="text-gray-400">Cargando bracket…</p>}
-          {bracketSim.error && (
-            <p className="text-yellow-400">Sin simulación de bracket disponible para este modelo.</p>
+          {runBracketSim.isSuccess && (
+            <div className="rounded bg-green-900/40 border border-green-800 px-4 py-2 text-sm text-green-300">
+              Simulación de bracket encolada — job_id: {runBracketSim.data.job_id}. Los resultados
+              aparecerán abajo cuando el job termine.
+            </div>
           )}
-          {bracketSim.data && Object.keys(bracketSim.data.rounds).length === 0 && (
+          {runBracketSim.isError && (
+            <div className="rounded bg-red-900/40 border border-red-800 px-4 py-2 text-sm text-red-300">
+              Error al encolar: {runBracketSim.error.message}
+            </div>
+          )}
+
+          {bracketLatest.isLoading && <p className="text-gray-400">Cargando bracket…</p>}
+          {bracketLatest.error && (
+            <p className="text-yellow-400">No se pudo cargar el bracket en vivo para este modelo.</p>
+          )}
+          {bracketLatest.data && bracketLatest.data.status !== 'completed' && (
             <p className="text-yellow-400 text-sm">
-              Aún no hay datos — el torneo no ha completado la fase de grupos, o no se ha
-              corrido la simulación de bracket todavía.
+              {bracketLatest.data.message ?? 'Aún no hay datos de bracket para este modelo.'}
             </p>
           )}
-          {bracketSim.data && Object.keys(bracketSim.data.rounds).length > 0 && (
+          {bracketLatest.data && bracketLatest.data.status === 'completed' && (
             <div className="space-y-6">
-              {bracketSim.data.computed_at && (
-                <p className="text-xs text-gray-600">
-                  Calculado: {new Date(bracketSim.data.computed_at).toLocaleString()}
-                </p>
-              )}
-              {BRACKET_ROUND_ORDER.filter((r) => bracketSim.data!.rounds[r]?.length).map((round) => (
+              <div className="flex flex-wrap gap-4 text-xs text-gray-500">
+                {bracketLatest.data.computed_at && (
+                  <span>Calculado: {new Date(bracketLatest.data.computed_at).toLocaleString()}</span>
+                )}
+                {bracketLatest.data.meta.iterations && (
+                  <span>Iteraciones: {bracketLatest.data.meta.iterations.toLocaleString()}</span>
+                )}
+                <span className="font-mono">run_id: {bracketLatest.data.run_id}</span>
+              </div>
+              {BRACKET_ROUND_ORDER.filter((r) => bracketLatest.data!.rounds[r]?.length).map((round) => (
                 <div key={round}>
                   <h3 className="mb-2 text-sm font-semibold text-gray-300 uppercase tracking-wider">
                     {BRACKET_ROUND_LABELS[round] ?? round}
                   </h3>
                   <div className="overflow-x-auto">
-                    <BracketRoundTable teams={bracketSim.data!.rounds[round]} />
+                    <BracketRoundTable teams={bracketLatest.data!.rounds[round]} />
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* Run history */}
+          {bracketRuns.data && bracketRuns.data.runs.length > 0 && (
+            <div>
+              <h3 className="mb-2 text-sm font-semibold text-gray-300 uppercase tracking-wider">
+                Historial de corridas
+              </h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-gray-800 text-left text-gray-500">
+                      <th className="pb-2 pr-4 font-medium">Fecha</th>
+                      <th className="pb-2 pr-4 font-medium">Estado</th>
+                      <th className="pb-2 pr-4 font-medium">Origen</th>
+                      <th className="pb-2 pr-4 font-medium">Iteraciones</th>
+                      <th className="pb-2 font-medium">Mensaje</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bracketRuns.data.runs.map((run) => (
+                      <tr key={run.id} className="border-b border-gray-800/50">
+                        <td className="py-1.5 pr-4 text-gray-400">{new Date(run.created_at).toLocaleString()}</td>
+                        <td className="py-1.5 pr-4">
+                          <span className={
+                            run.status === 'completed' ? 'text-green-400'
+                              : run.status === 'no_r32' ? 'text-yellow-400'
+                              : run.status === 'failed' ? 'text-red-400' : 'text-gray-400'
+                          }>
+                            {run.status}
+                          </span>
+                        </td>
+                        <td className="py-1.5 pr-4 text-gray-400">{run.source}</td>
+                        <td className="py-1.5 pr-4 text-gray-400">{run.iterations.toLocaleString()}</td>
+                        <td className="py-1.5 text-gray-500 max-w-sm truncate" title={run.error_message ?? undefined}>
+                          {run.error_message ?? '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </>

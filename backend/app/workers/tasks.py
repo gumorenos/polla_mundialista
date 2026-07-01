@@ -228,11 +228,19 @@ def run_simulation_task(
 
 
 def run_bracket_simulation_task(
-    model_name: str,
     job_id: str,
+    model_name: str,
+    source: str = "manual",
     _conn: sqlite3.Connection | None = None,
 ) -> dict:
-    """RQ task: run the live bracket simulation (real R32 qualifiers only)."""
+    """RQ task: run the live bracket simulation (real R32 qualifiers only).
+
+    Signature is (job_id, model_name, ...) — matches app.core.job_helper.enqueue_job's
+    calling convention of task_fn(job_id, *extra_args).
+
+    If the tournament hasn't reached R32 yet, this is NOT a technical failure:
+    the job is marked 'skipped' (not 'failed') with a clear reason.
+    """
     from app.db.connection import db_transaction
     from app.db.repositories.jobs import JobRepository
     from app.services.simulation.bracket_simulator import run_bracket_simulation
@@ -245,14 +253,21 @@ def run_bracket_simulation_task(
         )
         conn.commit()
         try:
-            summary = run_bracket_simulation(conn, model_name)
+            result = run_bracket_simulation(conn, model_name, source=source)
             job_repo.update_progress(job_id, 1.0)
-            job_repo.update_status(
-                job_id, "completed",
-                finished_at=datetime.now(timezone.utc).isoformat(),
-            )
+            if result["status"] == "no_r32":
+                job_repo.update_status(
+                    job_id, "skipped",
+                    finished_at=datetime.now(timezone.utc).isoformat(),
+                    error_message=result["message"],
+                )
+            else:
+                job_repo.update_status(
+                    job_id, "completed",
+                    finished_at=datetime.now(timezone.utc).isoformat(),
+                )
             conn.commit()
-            return summary
+            return result
         except Exception as exc:
             logger.exception("run_bracket_simulation_task failed for job %s: %s", job_id, exc)
             job_repo.update_status(
@@ -264,13 +279,16 @@ def run_bracket_simulation_task(
             raise
 
     if _conn is not None:
-        summary = _do_run(_conn)
+        result = _do_run(_conn)
     else:
         with db_transaction() as conn:
-            summary = _do_run(conn)
+            result = _do_run(conn)
 
-    logger.info("Bracket simulation task completed: model=%s teams=%d", model_name, len(summary))
-    return {"teams": len(summary)}
+    logger.info(
+        "Bracket simulation task completed: model=%s status=%s teams=%d",
+        model_name, result["status"], len(result["teams"]),
+    )
+    return {"run_id": result["run_id"], "status": result["status"], "teams": len(result["teams"])}
 
 
 def run_full_refresh_task(
