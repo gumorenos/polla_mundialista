@@ -55,14 +55,12 @@ _ACHIEVED_RANK = {
 }
 
 
-def load_r32_qualifiers(conn: sqlite3.Connection) -> dict[str, str]:
-    """Return {bracket_position: team_id} for the 32 teams that qualified
-    to the Round of 32, based on real wc2026_standings data.
+_WC2026_START_DATE = "2026-06-11"
+_FIXTURES_PER_GROUP = 6
 
-    All 12 groups must be finished (positions 1 and 2 marked 'qualified')
-    before the 32 can be determined — otherwise returns {} so the caller
-    can fall back to the fully-simulated WC2026Bracket.
-    """
+
+def _r32_from_standings(conn: sqlite3.Connection) -> dict[str, str]:
+    """Primary source: wc2026_standings with all 12 groups marked qualified."""
     rows = conn.execute(
         "SELECT team_id, group_id, position, points, goals_for, goals_against, status "
         "FROM wc2026_standings ORDER BY group_id, position"
@@ -105,13 +103,97 @@ def load_r32_qualifiers(conn: sqlite3.Connection) -> dict[str, str]:
         qualifiers[f"T{i + 1}"] = t["team_id"]
 
     if len(qualifiers) < 32:
-        logger.warning(
-            "load_r32_qualifiers: solo %d/32 posiciones resueltas — abortando",
-            len(qualifiers),
-        )
+        return {}
+    return qualifiers
+
+
+def _r32_from_results(conn: sqlite3.Connection) -> dict[str, str]:
+    """Fallback source: compute group tables directly from `results`, matched
+    by team-pair membership within each group (not by fixture/date join).
+
+    wc2026_standings depends on a fragile fixtures<->results join (exact
+    match_date + team order) that can silently under-match real games —
+    this recomputes the same 1st/2nd/best-thirds logic straight from
+    results, the same team-pair technique already used by
+    load_knockout_winners, immune to that join fragility.
+    """
+    group_teams: dict[str, list[str]] = defaultdict(list)
+    for row in conn.execute("SELECT group_id, team_id FROM group_teams ORDER BY group_id, position"):
+        group_teams[row["group_id"]].append(row["team_id"])
+
+    if len(group_teams) < 12:
         return {}
 
+    qualifiers: dict[str, str] = {}
+    thirds: list[dict] = []
+
+    for gid, team_ids in group_teams.items():
+        if len(team_ids) != 4:
+            return {}
+        placeholders = ",".join("?" for _ in team_ids)
+        rows = conn.execute(
+            f"""
+            SELECT home_team_id, away_team_id, home_goals, away_goals
+            FROM results
+            WHERE home_team_id IN ({placeholders}) AND away_team_id IN ({placeholders})
+              AND home_goals IS NOT NULL AND away_goals IS NOT NULL
+              AND match_date >= ?
+            """,
+            [*team_ids, *team_ids, _WC2026_START_DATE],
+        ).fetchall()
+
+        if len(rows) < _FIXTURES_PER_GROUP:
+            return {}  # group not finished yet — bail, same as standings path
+
+        stats = {tid: {"pts": 0, "gd": 0, "gf": 0} for tid in team_ids}
+        for r in rows:
+            h, a, hg, ag = r["home_team_id"], r["away_team_id"], r["home_goals"], r["away_goals"]
+            stats[h]["gf"] += hg; stats[h]["gd"] += hg - ag
+            stats[a]["gf"] += ag; stats[a]["gd"] += ag - hg
+            if hg > ag:
+                stats[h]["pts"] += 3
+            elif hg == ag:
+                stats[h]["pts"] += 1; stats[a]["pts"] += 1
+            else:
+                stats[a]["pts"] += 3
+
+        ranked = sorted(team_ids, key=lambda t: (stats[t]["pts"], stats[t]["gd"], stats[t]["gf"]), reverse=True)
+        qualifiers[f"1{gid}"] = ranked[0]
+        qualifiers[f"2{gid}"] = ranked[1]
+        third = ranked[2]
+        thirds.append({"team_id": third, **stats[third]})
+
+    thirds_sorted = sorted(thirds, key=lambda x: (x["pts"], x["gd"], x["gf"]), reverse=True)
+    for i, t in enumerate(thirds_sorted[:8]):
+        qualifiers[f"T{i + 1}"] = t["team_id"]
+
+    if len(qualifiers) < 32:
+        return {}
     return qualifiers
+
+
+def load_r32_qualifiers(conn: sqlite3.Connection) -> dict[str, str]:
+    """Return {bracket_position: team_id} for the 32 teams that qualified
+    to the Round of 32.
+
+    Tries wc2026_standings first (fast, authoritative when populated
+    correctly); if that's incomplete/stale, falls back to computing group
+    tables directly from `results` (see _r32_from_results) — this does not
+    depend on the fixtures<->standings ingestion pipeline at all, so a
+    standings-sync bug doesn't block the live bracket. Returns {} only if
+    neither source has all 12 groups finished.
+    """
+    qualifiers = _r32_from_standings(conn)
+    if qualifiers:
+        return qualifiers
+
+    qualifiers = _r32_from_results(conn)
+    if qualifiers:
+        logger.info("load_r32_qualifiers: resuelto via fallback de resultados (wc2026_standings incompleto/stale)")
+        return qualifiers
+
+    logger.warning("load_r32_qualifiers: sin R32 resuelto por ninguna fuente (standings ni resultados)")
+    return {}
 
 
 def load_knockout_winners(

@@ -210,6 +210,12 @@ def ingest_api_fixtures(
                     "outcome":      outcome,
                     "match_date":   f["match_date"],
                     "tournament":   f["tournament"],
+                    # ingest_api_fixtures always fetches league=_LEAGUE_WC2026 —
+                    # every result persisted here IS a WC2026 match. Previously
+                    # left unset (defaulted to False), which made bracket
+                    # knockout-result detection (filters on is_wc=1) blind to
+                    # every real R32+ result ingested from this source.
+                    "is_wc":        True,
                     "source":       "api_football",
                 })
                 count += 1

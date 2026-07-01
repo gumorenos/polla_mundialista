@@ -891,6 +891,27 @@ def _m026_api_keys_management(conn: sqlite3.Connection) -> None:
     _add_col(conn, "api_keys", "notes", "TEXT")
 
 
+def _m027_backfill_is_wc_api_football(conn: sqlite3.Connection) -> None:
+    """Backfill is_wc=1 for API-Football results ingested before the fix.
+
+    ingest_api_fixtures() only ever fetches the WC2026 league, but never
+    set is_wc on insert — every WC2026 knockout result imported through it
+    was invisible to load_knockout_winners() (which filters is_wc=1),
+    making the live bracket unable to detect already-played R32+ matches.
+    Safe/idempotent: only flips 0->1 for rows already tagged as coming
+    from api_football with a 2026-tournament match_date.
+    """
+    conn.execute(
+        """
+        UPDATE results
+        SET is_wc = 1
+        WHERE source = 'api_football'
+          AND is_wc = 0
+          AND match_date >= '2026-01-01'
+        """
+    )
+
+
 _MIGRATIONS = [
     _m001_create_all_tables,
     _m002_jobs_extend_schema,
@@ -918,6 +939,7 @@ _MIGRATIONS = [
     _m024_api_keys,
     _m025_bracket_runs,
     _m026_api_keys_management,
+    _m027_backfill_is_wc_api_football,
 ]
 
 
