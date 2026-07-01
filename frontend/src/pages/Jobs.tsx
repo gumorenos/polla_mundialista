@@ -5,19 +5,99 @@ import type { JobRecord } from '../types'
 
 const CANCELLABLE: JobRecord['status'][] = ['enqueued', 'started', 'running']
 
-const JOB_LABELS: Record<string, string> = {
+const MODEL_LABELS: Record<string, string> = {
+  baseline: 'Baseline',
+  elo: 'ELO',
+  poisson: 'Poisson',
+  poisson_context: 'Poisson+Ctx',
+  ml_calibrated: 'ML Calibrado',
+  consensus: 'Consenso',
+}
+
+const PIPELINE_LABELS: Record<string, string> = {
   full_refresh: 'Full Refresh',
   daily_update: 'Daily Update',
+  nightly_update_and_simulations: 'Nightly (update + simulaciones)',
   news: 'Noticias',
-  simulation_baseline: 'Simulación — Baseline',
-  simulation_elo: 'Simulación — ELO',
-  simulation_poisson: 'Simulación — Poisson',
-  simulation_poisson_context: 'Simulación — Poisson+Ctx',
-  simulation_ml_calibrated: 'Simulación — ML Calibrado',
+  odds: 'Odds',
+  ml_training: 'Entrenamiento ML',
+}
+
+export type JobOrigin = 'full_monte_carlo' | 'bracket' | 'pipeline' | 'other'
+
+export interface ParsedJobType {
+  origin: JobOrigin
+  model: string | null
+  label: string
+}
+
+/** Parse a job_type string into {origin, model, label} — covers both the
+ * current naming convention (simulation_full_<model>, simulation_bracket_<model>)
+ * and legacy values from before the Fase 1 normalization
+ * (bare "simulation", "simulation_<model>", "bracket_<model>"). */
+export function parseJobType(jobType: string): ParsedJobType {
+  if (jobType in PIPELINE_LABELS) {
+    return { origin: 'pipeline', model: null, label: PIPELINE_LABELS[jobType] }
+  }
+
+  if (jobType === 'simulation') {
+    return { origin: 'full_monte_carlo', model: null, label: 'Simulación' }
+  }
+
+  let m = jobType.match(/^simulation_full_(.+)$/)
+  if (m) {
+    const model = m[1]
+    return { origin: 'full_monte_carlo', model, label: `Monte Carlo — ${MODEL_LABELS[model] ?? model}` }
+  }
+
+  m = jobType.match(/^simulation_bracket_(.+)$/) || jobType.match(/^bracket_(.+)$/)
+  if (m) {
+    const model = m[1]
+    return { origin: 'bracket', model, label: `Bracket vivo — ${MODEL_LABELS[model] ?? model}` }
+  }
+
+  // Legacy: simulation_<model> (pre Fase-1 naming, no full/bracket infix)
+  m = jobType.match(/^simulation_(.+)$/)
+  if (m) {
+    const model = m[1]
+    return { origin: 'full_monte_carlo', model, label: `Monte Carlo — ${MODEL_LABELS[model] ?? model}` }
+  }
+
+  return { origin: 'other', model: null, label: jobType }
 }
 
 function formatJobType(jobType: string): string {
-  return JOB_LABELS[jobType] ?? jobType
+  return parseJobType(jobType).label
+}
+
+const ORIGIN_BADGE: Record<JobOrigin, string> = {
+  full_monte_carlo: 'bg-blue-900 text-blue-300',
+  bracket: 'bg-purple-900 text-purple-300',
+  pipeline: 'bg-gray-800 text-gray-300',
+  other: 'bg-gray-800 text-gray-400',
+}
+
+const ORIGIN_LABEL: Record<JobOrigin, string> = {
+  full_monte_carlo: 'Full MC',
+  bracket: 'Bracket',
+  pipeline: 'Pipeline',
+  other: '—',
+}
+
+function JobOriginBadge({ jobType }: { jobType: string }) {
+  const { origin, model } = parseJobType(jobType)
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${ORIGIN_BADGE[origin]}`}>
+        {ORIGIN_LABEL[origin]}
+      </span>
+      {model && (
+        <span className="rounded px-1.5 py-0.5 text-[10px] font-mono bg-indigo-950 text-indigo-300">
+          {MODEL_LABELS[model] ?? model}
+        </span>
+      )}
+    </span>
+  )
 }
 
 // Thresholds for stuck detection
@@ -170,7 +250,7 @@ export default function Jobs() {
           <table className="w-full text-sm">
             <thead className="bg-gray-900">
               <tr>
-                {['Tipo', 'Estado', 'Progreso'].map((h) => (
+                {['Tipo', 'Origen', 'Estado', 'Progreso'].map((h) => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-400">{h}</th>
                 ))}
                 {['Creado', 'Iniciado', 'Duración', 'Error'].map((h) => (
@@ -182,7 +262,7 @@ export default function Jobs() {
             <tbody>
               {data.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-6 text-center text-gray-500">
+                  <td colSpan={9} className="px-4 py-6 text-center text-gray-500">
                     Sin jobs registrados.
                   </td>
                 </tr>
@@ -190,6 +270,9 @@ export default function Jobs() {
               {data.map((job) => (
                 <tr key={job.id} className="border-t border-gray-800 hover:bg-gray-900">
                   <td className="px-4 py-2 text-gray-200">{formatJobType(job.job_type)}</td>
+                  <td className="px-4 py-2">
+                    <JobOriginBadge jobType={job.job_type} />
+                  </td>
                   <td className="px-4 py-2">
                     <StatusIndicator job={job} now={now} />
                   </td>
