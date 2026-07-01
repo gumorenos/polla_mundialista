@@ -74,6 +74,24 @@ def get_player_form(
     }
 
 
+def _top_xg_player(team_id: str, conn: sqlite3.Connection, candidate_names: list[str]) -> str | None:
+    """Highest cumulative-xG player among *candidate_names* for *team_id*."""
+    if not candidate_names:
+        return None
+    placeholders = ",".join("?" for _ in candidate_names)
+    row = conn.execute(
+        f"""
+        SELECT player_name FROM sb_player_stats
+        WHERE team_id = ? AND player_name IN ({placeholders})
+        GROUP BY player_name
+        ORDER BY SUM(xg) DESC
+        LIMIT 1
+        """,
+        [team_id, *candidate_names],
+    ).fetchone()
+    return row["player_name"] if row else None
+
+
 def get_team_form_adjustment(
     team_id: str,
     conn: sqlite3.Connection,
@@ -81,44 +99,27 @@ def get_team_form_adjustment(
 ) -> float:
     """Return an attack-lambda multiplier based on the team's main striker form.
 
-    Finds the player with the highest cumulative xG for *team_id* in
-    sb_player_stats and evaluates their recent form.
+    Finds the highest-cumulative-xG player restricted to the real WC2026
+    squad when known (see get_key_player_pool) and evaluates their recent
+    form.
 
     Returns:
         1.08  if the player is in form (form_rating > 1.2)
         0.92  if the player is out of form (form_rating < 0.5)
-        1.0   if no StatsBomb data or form is average
+        1.0   if no StatsBomb data, no squad match, or form is average
     """
+    from app.services.features.squad_pool import get_key_player_pool
+
     try:
-        row = conn.execute(
-            """
-            SELECT sps.player_name
-            FROM sb_player_stats sps
-            WHERE sps.team_id = ?
-              AND (
-                  EXISTS (
-                      SELECT 1 FROM wc2026_squads ws
-                      WHERE ws.team_id = sps.team_id
-                        AND ws.player_name = sps.player_name
-                  )
-                  OR NOT EXISTS (
-                      SELECT 1 FROM wc2026_squads WHERE team_id = sps.team_id
-                  )
-              )
-            GROUP BY sps.player_name
-            ORDER BY SUM(sps.xg) DESC
-            LIMIT 1
-            """,
-            (team_id,),
-        ).fetchone()
+        pool = get_key_player_pool(team_id, conn)
+        top_player = _top_xg_player(team_id, conn, pool["players"])
     except Exception as exc:
         logger.debug("get_team_form_adjustment: query failed for %s: %s", team_id, exc)
         return 1.0
 
-    if row is None:
+    if top_player is None:
         return 1.0
 
-    top_player = row["player_name"]
     form = get_player_form(top_player, team_id, conn, last_n=last_n)
 
     if not form["has_data"]:

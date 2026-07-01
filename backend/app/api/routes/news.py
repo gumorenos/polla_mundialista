@@ -209,10 +209,8 @@ def get_player_form_summary() -> dict[str, Any]:
     their recent-form metrics derived from the last 5 StatsBomb matches.
     Only teams with StatsBomb data are included in the response.
     """
-    from app.services.features.player_form import (
-        _IN_FORM_THRESHOLD, _OUT_OF_FORM_THRESH,
-        get_player_form,
-    )
+    from app.services.features.player_form import _top_xg_player, get_player_form
+    from app.services.features.squad_pool import get_key_player_pool
 
     with db_transaction() as conn:
         try:
@@ -231,26 +229,19 @@ def get_player_form_summary() -> dict[str, Any]:
         for t in team_rows:
             team_id = t["team_id"]
 
-            # Find key player (highest cumulative xG)
+            # Key player = highest cumulative xG restricted to the real
+            # WC2026 squad when known (see get_key_player_pool) — a player
+            # who topped historical xG but isn't in the final squad is
+            # never surfaced here.
             try:
-                top_row = conn.execute(
-                    """
-                    SELECT player_name
-                    FROM sb_player_stats
-                    WHERE team_id = ?
-                    GROUP BY player_name
-                    ORDER BY SUM(xg) DESC
-                    LIMIT 1
-                    """,
-                    (team_id,),
-                ).fetchone()
+                pool = get_key_player_pool(team_id, conn)
+                player_name = _top_xg_player(team_id, conn, pool["players"])
             except Exception:
                 continue
 
-            if not top_row:
+            if not player_name:
                 continue
 
-            player_name = top_row["player_name"]
             form = get_player_form(player_name, team_id, conn)
             if not form["has_data"]:
                 continue
@@ -266,6 +257,9 @@ def get_player_form_summary() -> dict[str, Any]:
                     "matches_used": form["matches_used"],
                     "in_form":     form["in_form"],
                     "out_of_form": form["out_of_form"],
+                    "squad_status": pool["squad_status"],
+                    "uses_fallback_player_pool": pool["squad_status"] == "missing",
+                    "squad_warning": pool["warning"],
                 }
             )
 
