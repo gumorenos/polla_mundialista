@@ -133,14 +133,19 @@ def list_groups(request: Request) -> dict[str, list[str]]:
 def get_simulation_latest(request: Request, model: str = Query(default="consensus")) -> Any:
     """Latest completed simulation results for a model. Defaults to 'consensus'
     — the recommended model for external consumption (see docs/public-api-v1.md)."""
+    from app.services.simulation.validation import get_latest_valid_run
+
     if model not in _VALID_MODELS:
         return _error(400, "invalid_model", f"Invalid model. Must be one of: {sorted(_VALID_MODELS)}")
 
     with db_transaction() as conn:
         repo = SimulationRepository(conn)
-        run = repo.get_latest_by_model(model)
+        run = get_latest_valid_run(conn, model)
         if not run:
-            return _error(404, "not_found", f"No completed simulation for model {model}")
+            return _error(
+                404, "no_valid_simulation",
+                f"No hay simulación válida para el modelo {model}. Recalcula el modelo.",
+            )
         summary = repo.get_run_summary(run["id"])
 
     return _envelope(
@@ -173,14 +178,19 @@ def get_simulation_comparison(request: Request) -> dict[str, Any]:
 def get_simulation(request: Request, model_name: str) -> Any:
     """Legacy alias of GET /simulations/latest?model=<model_name> — flat
     shape (no {data, meta} envelope). New integrations should use /latest."""
+    from app.services.simulation.validation import get_latest_valid_run
+
     if model_name not in _VALID_MODELS:
         raise HTTPException(status_code=400, detail=f"Invalid model_name. Must be one of: {sorted(_VALID_MODELS)}")
 
     with db_transaction() as conn:
         repo = SimulationRepository(conn)
-        run = repo.get_latest_by_model(model_name)
+        run = get_latest_valid_run(conn, model_name)
         if not run:
-            raise HTTPException(status_code=404, detail=f"No completed simulation for model '{model_name}'")
+            raise HTTPException(
+                status_code=404,
+                detail=f"No valid completed simulation for model '{model_name}'. Recalcula el modelo.",
+            )
         return repo.get_run_summary(run["id"])
 
 

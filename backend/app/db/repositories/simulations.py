@@ -88,6 +88,25 @@ class SimulationRepository:
             ).fetchone()
         )
 
+    def get_recent_completed(self, model_name: str, limit: int = 20) -> list[dict[str, Any]]:
+        """Most recent completed runs for a model, newest first — used to scan
+        past a stale/invalid latest run and find the newest valid one."""
+        rows = self._c.execute(
+            """
+            SELECT sr.* FROM simulation_runs sr
+            WHERE sr.model_name = ?
+              AND sr.status = 'completed'
+              AND EXISTS (
+                  SELECT 1 FROM simulation_team_results str
+                  WHERE str.simulation_run_id = sr.id
+              )
+            ORDER BY sr.finished_at DESC
+            LIMIT ?
+            """,
+            (model_name, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     def get_two_latest_by_model(self, model_name: str) -> list[dict[str, Any]]:
         """Return the two most recent completed simulation runs for a model."""
         rows = self._c.execute(

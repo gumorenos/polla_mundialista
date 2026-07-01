@@ -87,38 +87,39 @@ _COMPARISON_MODELS = ["baseline", "elo", "poisson", "poisson_context", "ml_calib
 
 @router.get("/comparison")
 def get_comparison() -> dict[str, Any]:
-    """Return win_tournament % for each team across all models (latest completed run per model).
+    """Return win_tournament % for each team across all models (latest VALID
+    completed run per model — see app.services.simulation.validation).
 
     Only includes teams that appear in at least one completed simulation.
     Missing model data for a team is returned as null.
     """
+    from app.services.simulation.validation import get_latest_valid_run
+
     with db_transaction() as conn:
+        valid_run_ids = []
+        for model_name in _COMPARISON_MODELS:
+            run = get_latest_valid_run(conn, model_name)
+            if run is not None:
+                valid_run_ids.append(run["id"])
+
+        if not valid_run_ids:
+            return {"models": _COMPARISON_MODELS, "teams": []}
+
+        placeholders = ",".join("?" for _ in valid_run_ids)
         rows = conn.execute(
-            """
-            WITH latest_runs AS (
-                SELECT model_name, MAX(finished_at) AS max_finished
-                FROM simulation_runs
-                WHERE status = 'completed'
-                GROUP BY model_name
-            ),
-            run_ids AS (
-                SELECT sr.id, sr.model_name
-                FROM simulation_runs sr
-                JOIN latest_runs lr
-                    ON sr.model_name = lr.model_name
-                    AND sr.finished_at = lr.max_finished
-                WHERE sr.status = 'completed'
-            )
+            f"""
             SELECT
                 str.team_id,
                 t.name AS team_name,
-                ri.model_name,
+                sr.model_name,
                 str.win_tournament
             FROM simulation_team_results str
-            JOIN run_ids ri ON str.simulation_run_id = ri.id
+            JOIN simulation_runs sr ON sr.id = str.simulation_run_id
             JOIN teams t ON str.team_id = t.id
-            ORDER BY str.team_id, ri.model_name
-            """
+            WHERE sr.id IN ({placeholders})
+            ORDER BY str.team_id, sr.model_name
+            """,
+            valid_run_ids,
         ).fetchall()
 
     # Pivot into {team_id: {model_name: win_tournament, ...}}
@@ -275,14 +276,20 @@ def get_favorite_history(
 
 @router.get("/latest")
 def get_latest(model: str = Query(default="poisson")) -> dict[str, Any]:
-    """Return latest completed simulation results for a model."""
+    """Return latest VALID completed simulation results for a model.
+
+    Scans past a stale/invalid latest run (see app.services.simulation.validation)
+    rather than serving data known to violate the probability invariants.
+    """
+    from app.services.simulation.validation import get_latest_valid_run
+
     with db_transaction() as conn:
         repo = SimulationRepository(conn)
-        run = repo.get_latest_by_model(model)
+        run = get_latest_valid_run(conn, model)
         if not run:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"No completed simulation found for model '{model}'",
+                detail=f"No valid completed simulation found for model '{model}'. Recalcula el modelo.",
             )
         return repo.get_run_summary(run["id"])
 

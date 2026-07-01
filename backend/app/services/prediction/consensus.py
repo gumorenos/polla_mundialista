@@ -28,16 +28,37 @@ _AGG_COLS = [
 def compute_consensus_from_results(conn: sqlite3.Connection) -> dict[str, dict]:
     """Aggregate stored per-model simulation results into a consensus view.
 
-    Reads the most recent completed simulation for each individual model and
-    computes a weighted average of all per-team probability columns.
+    For each base model, uses the newest completed run that passes
+    validate_simulation_run (see app.services.simulation.validation) — a run
+    produced by a buggy Monte Carlo build (e.g. the reach_round_of_32
+    double-count bug) is skipped even if it's the most recent, with a
+    warning logged, rather than silently poisoning the consensus.
 
     Returns {team_id: {win_tournament, reach_final, ...}} or empty dict if
-    fewer than 2 individual model simulations are available.
+    fewer than 2 valid individual model simulations are available.
     """
+    from app.services.simulation.validation import get_latest_valid_run
+
     weights = get_consensus_weights(conn)
 
+    valid_run_ids: dict[str, str] = {}
+    for model_name in _MODEL_NAMES:
+        run = get_latest_valid_run(conn, model_name)
+        if run is None:
+            logger.warning(
+                "compute_consensus: %s no tiene ningún run completed válido reciente — se omite",
+                model_name,
+            )
+            continue
+        valid_run_ids[model_name] = run["id"]
+
+    if not valid_run_ids:
+        logger.warning("compute_consensus: no hay simulaciones individuales válidas disponibles")
+        return {}
+
+    placeholders = ",".join("?" for _ in valid_run_ids)
     rows = conn.execute(
-        """
+        f"""
         SELECT str.team_id, sr.model_name,
                str.win_tournament,      str.reach_final,
                str.reach_semi_final,    str.reach_quarter_final,
@@ -45,15 +66,9 @@ def compute_consensus_from_results(conn: sqlite3.Connection) -> dict[str, dict]:
                str.qualify,             str.win_group
         FROM simulation_team_results str
         JOIN simulation_runs sr ON str.simulation_run_id = sr.id
-        WHERE sr.status     = 'completed'
-          AND sr.model_name IN ('elo','poisson','poisson_context','ml_calibrated')
-          AND sr.finished_at = (
-              SELECT MAX(sr2.finished_at)
-              FROM simulation_runs sr2
-              WHERE sr2.model_name = sr.model_name
-                AND sr2.status     = 'completed'
-          )
-        """
+        WHERE sr.id IN ({placeholders})
+        """,
+        list(valid_run_ids.values()),
     ).fetchall()
 
     if not rows:

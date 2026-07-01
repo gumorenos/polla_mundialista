@@ -90,7 +90,7 @@ class TestEnvelopedEndpoints:
         resp = client.get("/api/public/v1/simulations/latest?model=consensus", headers={"X-API-Key": api_key})
         assert resp.status_code == 404
         body = resp.json()
-        assert body["error"]["code"] == "not_found"
+        assert body["error"]["code"] == "no_valid_simulation"
         assert "consensus" in body["error"]["message"]
 
     def test_simulations_latest_invalid_model_uses_error_envelope(self, client, api_key):
