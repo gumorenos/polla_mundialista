@@ -28,6 +28,31 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_STRENGTH = 1.0
 _DEFAULT_ELO_NEUTRAL = 1500.0
+_ELO_PRIOR_SCALE = 1600.0  # spread controlling how far from 1.0 elite/weak ELO priors land
+_ELO_PRIOR_BOUNDS = (0.4, 2.0)
+
+
+def _elo_attack_defense_prior(elo: float) -> tuple[float, float]:
+    """Map an ELO rating to (attack_prior, defense_prior) on the same ~1.0-
+    centred scale as attack_strength/defense_vulnerability. Higher ELO →
+    higher attack prior, lower (better) defense_vulnerability prior."""
+    delta = (elo - _DEFAULT_ELO_NEUTRAL) / _ELO_PRIOR_SCALE
+    lo, hi = _ELO_PRIOR_BOUNDS
+    attack = min(hi, max(lo, 1.0 + delta))
+    defense = min(hi, max(lo, 1.0 - delta))
+    return attack, defense
+
+
+def _elo_prior_weight(matches_used: int) -> float:
+    """Blend weight for the ELO prior — POISSON_ELO_PRIOR_WEIGHT once
+    matches_used reaches POISSON_ELO_PRIOR_MIN_MATCHES, scaling up toward
+    1.0 (pure ELO prior) as matches_used approaches 0."""
+    base = settings.POISSON_ELO_PRIOR_WEIGHT
+    min_matches = settings.POISSON_ELO_PRIOR_MIN_MATCHES
+    if min_matches <= 0 or matches_used >= min_matches:
+        return base
+    frac_missing = 1.0 - (matches_used / min_matches)
+    return base + (1.0 - base) * frac_missing
 
 
 # ---------------------------------------------------------------------------
@@ -110,7 +135,8 @@ class PoissonModel(PredictionModel):
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
         # Preload team strengths — avoids 2 DB queries per predict_match() call.
-        self._strength_map: dict[str, tuple[float, float]] = self._load_strength_map()
+        self._strength_map: dict[str, tuple[float, float, int]] = self._load_strength_map()
+        self._elo_map: dict[str, float] = self._load_elo_map()
 
     # ------------------------------------------------------------------
     # Public API
@@ -134,12 +160,12 @@ class PoissonModel(PredictionModel):
     # Shared helpers used by subclass
     # ------------------------------------------------------------------
 
-    def _load_strength_map(self) -> dict[str, tuple[float, float]]:
+    def _load_strength_map(self) -> dict[str, tuple[float, float, int]]:
         """Load all team strengths into memory (most recent per team)."""
         try:
             rows = self._conn.execute(
                 """
-                SELECT ts.team_id, ts.attack_strength, ts.defense_vulnerability
+                SELECT ts.team_id, ts.attack_strength, ts.defense_vulnerability, ts.matches_used
                 FROM team_strengths ts
                 INNER JOIN (
                     SELECT team_id, MAX(computed_at) AS max_at
@@ -149,22 +175,52 @@ class PoissonModel(PredictionModel):
                 """
             ).fetchall()
             return {
-                r["team_id"]: (float(r["attack_strength"]), float(r["defense_vulnerability"]))
+                r["team_id"]: (
+                    float(r["attack_strength"]),
+                    float(r["defense_vulnerability"]),
+                    int(r["matches_used"] or 0),
+                )
                 for r in rows
             }
         except Exception as exc:
             logger.warning("PoissonModel: failed to preload strength map: %s", exc)
             return {}
 
+    def _load_elo_map(self) -> dict[str, float]:
+        try:
+            from app.services.ml.feature_builder import load_elo_map
+            return load_elo_map(self._conn)
+        except Exception as exc:
+            logger.warning("PoissonModel: failed to preload ELO map: %s", exc)
+            return {}
+
     def _get_strength(self, team_id: str) -> tuple[float, float, bool]:
-        """Return (attack, defense, found) for a team from preloaded map."""
+        """Return (attack, defense, found) for a team, blended with an
+        ELO-derived prior (see POISSON_ELO_PRIOR_WEIGHT/_MIN_MATCHES) so a
+        small or noisy historical sample doesn't value a team far from its
+        known ELO tier. The blend weight is small once matches_used is
+        healthy, and grows toward a pure ELO prior as data thins out."""
         entry = self._strength_map.get(team_id)
+        elo = self._elo_map.get(team_id)
+
         if entry is None:
+            if elo is not None:
+                attack, defense = _elo_attack_defense_prior(elo)
+                return attack, defense, True
             logger.warning(
                 "PoissonModel: no strength data for team %s — using defaults", team_id
             )
             return _DEFAULT_STRENGTH, _DEFAULT_STRENGTH, False
-        return entry[0], entry[1], True
+
+        attack, defense, matches_used = entry
+        if elo is None:
+            return attack, defense, True
+
+        w = _elo_prior_weight(matches_used)
+        elo_attack, elo_defense = _elo_attack_defense_prior(elo)
+        blended_attack = (1 - w) * attack + w * elo_attack
+        blended_defense = (1 - w) * defense + w * elo_defense
+        return blended_attack, blended_defense, True
 
     def _compute_lambdas(
         self,

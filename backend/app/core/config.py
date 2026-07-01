@@ -111,6 +111,15 @@ class Settings(BaseSettings):
     LOCAL_ADVANTAGE_NEUTRAL: float = 1.0
     LOCAL_ADVANTAGE_HOME: float = 1.1
 
+    # ELO-as-prior blend for Poisson attack/defense strengths — protects
+    # teams with few historical matches (or noisy/outlier results in that
+    # small sample) from being valued far from their known ELO tier.
+    # w scales up linearly as matches_used drops below the min threshold;
+    # at/above the threshold w == POISSON_ELO_PRIOR_WEIGHT (never zero,
+    # so ELO always has *some* influence, just a small one with enough data).
+    POISSON_ELO_PRIOR_WEIGHT: float = 0.25
+    POISSON_ELO_PRIOR_MIN_MATCHES: int = 10
+
     # ------------------------------------------------------------------
     # Injuries / News
     # ------------------------------------------------------------------
