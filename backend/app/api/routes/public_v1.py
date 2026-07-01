@@ -3,13 +3,25 @@
 Completely separate from the internal /api/* namespace: no require_admin,
 no session cookies, GET-only. Auth is via X-API-Key (see
 app.api.dependencies.require_api_key) checked against the api_keys table.
+
+Response contract (see docs/public-api-v1.md):
+  Success: {"data": ..., "meta": {generated_at, timezone, ...}}
+  Error:   {"error": {"code", "message", "details"}}
+
+The original endpoints (GET /teams, /groups, /fixtures, /simulations/{model},
+/bracket/{model}) predate this envelope and are kept as-is (flat shape) for
+backward compatibility — they are documented as legacy aliases. New
+endpoints (/simulations/latest, /simulations/comparison, /bracket/latest,
+/bracket/runs, /health, /metadata) use the enveloped contract.
 """
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 
 from app.api.dependencies import require_api_key
 from app.core.config import settings
@@ -24,7 +36,61 @@ router = APIRouter(
 )
 
 _VALID_MODELS = {"baseline", "elo", "poisson", "poisson_context", "ml_calibrated", "consensus"}
+_TIMEZONE_LABEL = "America/Lima"
 
+
+def _error(status_code: int, code: str, message: str, details: dict | None = None) -> JSONResponse:
+    return JSONResponse(
+        status_code=status_code,
+        content={"error": {"code": code, "message": message, "details": details or {}}},
+    )
+
+
+def _envelope(data: Any, **meta: Any) -> dict[str, Any]:
+    return {
+        "data": data,
+        "meta": {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "timezone": _TIMEZONE_LABEL,
+            **meta,
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# GET /health
+# ---------------------------------------------------------------------------
+
+@router.get("/health")
+@limiter.limit(settings.RATE_LIMIT_PUBLIC_API)
+def public_health(request: Request) -> dict[str, Any]:
+    """Liveness check for external consumers — requires a valid API key like
+    every other endpoint in this namespace (no anonymous access)."""
+    return _envelope({"status": "ok"})
+
+
+# ---------------------------------------------------------------------------
+# GET /metadata
+# ---------------------------------------------------------------------------
+
+@router.get("/metadata")
+@limiter.limit(settings.RATE_LIMIT_PUBLIC_API)
+def public_metadata(request: Request) -> dict[str, Any]:
+    """Static contract info for external integrators — valid models, round
+    names, and where to find the full docs. Never exposes secrets/keys."""
+    return _envelope({
+        "version": "v1",
+        "models": sorted(_VALID_MODELS),
+        "default_model": "consensus",
+        "rounds": ["round_of_32", "round_of_16", "quarterfinals", "semifinals", "final", "champion"],
+        "rate_limit": settings.RATE_LIMIT_PUBLIC_API,
+        "docs": "docs/public-api-v1.md",
+    })
+
+
+# ---------------------------------------------------------------------------
+# GET /teams  (legacy flat shape, unchanged)
+# ---------------------------------------------------------------------------
 
 @router.get("/teams")
 @limiter.limit(settings.RATE_LIMIT_PUBLIC_API)
@@ -37,6 +103,10 @@ def list_teams(request: Request) -> list[dict[str, Any]]:
         ).fetchall()
         return [dict(r) for r in rows]
 
+
+# ---------------------------------------------------------------------------
+# GET /groups  (legacy flat shape, unchanged)
+# ---------------------------------------------------------------------------
 
 @router.get("/groups")
 @limiter.limit(settings.RATE_LIMIT_PUBLIC_API)
@@ -54,13 +124,55 @@ def list_groups(request: Request) -> dict[str, list[str]]:
         return groups
 
 
+# ---------------------------------------------------------------------------
+# GET /simulations/latest  (new enveloped contract)
+# ---------------------------------------------------------------------------
+
+@router.get("/simulations/latest")
+@limiter.limit(settings.RATE_LIMIT_PUBLIC_API)
+def get_simulation_latest(request: Request, model: str = Query(default="consensus")) -> Any:
+    """Latest completed simulation results for a model. Defaults to 'consensus'
+    — the recommended model for external consumption (see docs/public-api-v1.md)."""
+    if model not in _VALID_MODELS:
+        return _error(400, "invalid_model", f"Invalid model. Must be one of: {sorted(_VALID_MODELS)}")
+
+    with db_transaction() as conn:
+        repo = SimulationRepository(conn)
+        run = repo.get_latest_by_model(model)
+        if not run:
+            return _error(404, "not_found", f"No completed simulation for model {model}")
+        summary = repo.get_run_summary(run["id"])
+
+    return _envelope(
+        summary, model=model, source_run_id=run["id"],
+        cache_ttl_seconds=300, stale=False,
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /simulations/comparison  (new enveloped contract)
+# ---------------------------------------------------------------------------
+
+@router.get("/simulations/comparison")
+@limiter.limit(settings.RATE_LIMIT_PUBLIC_API)
+def get_simulation_comparison(request: Request) -> dict[str, Any]:
+    """Win_tournament % per team across all models — for apps that want to
+    show model agreement/disagreement rather than a single model's view."""
+    from app.api.routes.simulations import get_comparison
+
+    data = get_comparison()
+    return _envelope(data, cache_ttl_seconds=300, stale=False)
+
+
+# ---------------------------------------------------------------------------
+# GET /simulations/{model_name}  (legacy alias, flat shape)
+# ---------------------------------------------------------------------------
+
 @router.get("/simulations/{model_name}")
 @limiter.limit(settings.RATE_LIMIT_PUBLIC_API)
-def get_simulation(request: Request, model_name: str) -> dict[str, Any]:
-    """Latest completed simulation results for a model.
-
-    model_name: baseline | elo | poisson | poisson_context | ml_calibrated | consensus
-    """
+def get_simulation(request: Request, model_name: str) -> Any:
+    """Legacy alias of GET /simulations/latest?model=<model_name> — flat
+    shape (no {data, meta} envelope). New integrations should use /latest."""
     if model_name not in _VALID_MODELS:
         raise HTTPException(status_code=400, detail=f"Invalid model_name. Must be one of: {sorted(_VALID_MODELS)}")
 
@@ -72,40 +184,101 @@ def get_simulation(request: Request, model_name: str) -> dict[str, Any]:
         return repo.get_run_summary(run["id"])
 
 
+# ---------------------------------------------------------------------------
+# GET /bracket/latest  (new enveloped contract)
+# ---------------------------------------------------------------------------
+
+@router.get("/bracket/latest")
+@limiter.limit(settings.RATE_LIMIT_PUBLIC_API)
+def get_bracket_latest(request: Request, model: str = Query(default="consensus")) -> Any:
+    """Latest live-bracket run for a model — historical, not a fresh
+    simulation triggered by this call (the public API is read-only)."""
+    from app.services.simulation.bracket_simulator import get_latest_bracket_view
+
+    if model not in _VALID_MODELS:
+        return _error(400, "invalid_model", f"Invalid model. Must be one of: {sorted(_VALID_MODELS)}")
+
+    with db_transaction() as conn:
+        view = get_latest_bracket_view(conn, model)
+
+    if view["status"] != "completed":
+        return {
+            "model": model, "run_id": None, "status": view["status"],
+            "rounds": {}, "computed_at": None, "message": view["message"],
+        }
+
+    return {
+        "model": model,
+        "run_id": view["run_id"],
+        "status": "completed",
+        "rounds": view["rounds"],
+        "computed_at": view["computed_at"],
+        "meta": {**view["meta"], "cache_ttl_seconds": 300},
+    }
+
+
+# ---------------------------------------------------------------------------
+# GET /bracket/runs  (new enveloped contract)
+# ---------------------------------------------------------------------------
+
+@router.get("/bracket/runs")
+@limiter.limit(settings.RATE_LIMIT_PUBLIC_API)
+def get_bracket_runs(
+    request: Request,
+    model: str = Query(default="consensus"),
+    limit: int = Query(default=20, ge=1, le=100),
+) -> dict[str, Any]:
+    """Historical bracket runs for a model, most recent first."""
+    from app.db.repositories.bracket import BracketRepository
+
+    if model not in _VALID_MODELS:
+        return _error(400, "invalid_model", f"Invalid model. Must be one of: {sorted(_VALID_MODELS)}")
+
+    with db_transaction() as conn:
+        runs = BracketRepository(conn).list_runs(model, limit=limit)
+
+    return _envelope({"model": model, "runs": runs})
+
+
+# ---------------------------------------------------------------------------
+# GET /bracket/{model_name}  (legacy alias, flat shape)
+# ---------------------------------------------------------------------------
+
 @router.get("/bracket/{model_name}")
 @limiter.limit(settings.RATE_LIMIT_PUBLIC_API)
-def get_bracket(request: Request, model_name: str) -> dict[str, Any]:
-    """Live bracket probabilities (advance + next-match) for a model."""
+def get_bracket(request: Request, model_name: str) -> Any:
+    """Legacy alias of GET /bracket/latest?model=<model_name> — flat shape."""
+    from app.services.simulation.bracket_simulator import get_latest_bracket_view
+
     if model_name not in _VALID_MODELS:
         raise HTTPException(status_code=400, detail=f"Invalid model_name. Must be one of: {sorted(_VALID_MODELS)}")
 
     with db_transaction() as conn:
-        rows = conn.execute(
-            """
-            SELECT bs.round_name, bs.team_id, t.name AS team_name,
-                   bs.advance_prob, bs.opponent_id, o.name AS opponent_name,
-                   bs.match_win_prob, bs.is_eliminated, bs.computed_at
-            FROM bracket_simulations bs
-            JOIN teams t ON t.id = bs.team_id
-            LEFT JOIN teams o ON o.id = bs.opponent_id
-            WHERE bs.model_name = ?
-            ORDER BY bs.round_name, bs.advance_prob DESC
-            """,
-            (model_name,),
-        ).fetchall()
-        if not rows:
-            raise HTTPException(
-                status_code=404,
-                detail=(
-                    f"No bracket simulation found for model '{model_name}'. "
-                    "El torneo puede no haber llegado aún a fase eliminatoria."
-                ),
-            )
-        return {
-            "model_name": model_name,
-            "rounds":     [dict(r) for r in rows],
-        }
+        view = get_latest_bracket_view(conn, model_name)
 
+    if view["status"] != "completed":
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                view["message"]
+                or f"No bracket simulation found for model '{model_name}'. "
+                   "El torneo puede no haber llegado aún a fase eliminatoria."
+            ),
+        )
+
+    return {
+        "model_name": model_name,
+        "rounds": [
+            {"round_name": round_name, **team}
+            for round_name, teams in view["rounds"].items()
+            for team in teams
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------
+# GET /fixtures  (legacy flat shape, unchanged)
+# ---------------------------------------------------------------------------
 
 @router.get("/fixtures")
 @limiter.limit(settings.RATE_LIMIT_PUBLIC_API)

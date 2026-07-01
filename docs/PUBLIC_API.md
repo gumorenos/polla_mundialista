@@ -1,5 +1,10 @@
 # API Pública Oráculo Mundial 2026
 
+> Ver [`docs/public-api-v1.md`](./public-api-v1.md) para el contrato completo
+> y actualizado (envelope `{data,meta}`, endpoints nuevos, gestión de keys
+> desde la UI admin). Este archivo se mantiene solo por compatibilidad de
+> enlaces existentes.
+
 Base URL: `https://tu-dominio.com/api/public/v1`
 
 Namespace de solo lectura, separado del sistema admin interno (`/api/*`
