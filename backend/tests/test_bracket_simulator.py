@@ -274,6 +274,45 @@ class TestRunBracketSimulationPersists:
             assert r["advance_prob"] == pytest.approx(0.0), f"{rnd}: expected 0.0, got {r['advance_prob']}"
         conn.close()
 
+    def test_is_eliminated_stays_true_for_all_rounds_after_real_elimination(self):
+        """A team eliminated in round_of_16 must show is_eliminated=True in
+        quarterfinals/semifinals/final/champion rows too — not just round_of_16
+        — otherwise later-round tables contradict the R16 result."""
+        conn = _make_db()
+        _seed_complete_groups(conn)
+        r32 = load_r32_qualifiers(conn)
+        home, away = r32["1A"], r32["2B"]
+        # home wins R32 (survives), then loses in R16 for real.
+        conn.execute(
+            "INSERT INTO results (id, home_team_id, away_team_id, home_goals, away_goals, match_date, is_wc) "
+            "VALUES ('r1', ?, ?, 2, 0, '2026-07-02', 1)",
+            (home, away),
+        )
+        other_home, other_away = r32["1C"], r32["T1"]
+        conn.execute(
+            "INSERT INTO results (id, home_team_id, away_team_id, home_goals, away_goals, match_date, is_wc) "
+            "VALUES ('r2', ?, ?, 1, 0, '2026-07-02', 1)",
+            (other_home, other_away),
+        )
+        conn.execute(
+            "INSERT INTO results (id, home_team_id, away_team_id, home_goals, away_goals, match_date, is_wc) "
+            "VALUES ('r3', ?, ?, 0, 3, '2026-07-06', 1)",
+            (home, other_home),
+        )
+        conn.commit()
+
+        result = run_bracket_simulation(conn, "baseline", n_iterations=30)
+        run_id = result["run_id"]
+
+        for rnd in ("quarterfinals", "semifinals", "final", "champion"):
+            r = conn.execute(
+                "SELECT is_eliminated FROM bracket_simulation_results "
+                "WHERE bracket_run_id = ? AND team_id = ? AND round_name = ?",
+                (run_id, home, rnd),
+            ).fetchone()
+            assert r["is_eliminated"] == 1, f"{rnd}: expected is_eliminated=1 for a team eliminated in R16"
+        conn.close()
+
 
 class TestGetLatestBracketView:
     def test_no_run_ever_attempted(self):
@@ -305,6 +344,34 @@ class TestGetLatestBracketView:
         assert view["run_id"] == result["run_id"]
         assert "round_of_32" in view["rounds"]
         assert view["meta"]["iterations"] == 20
+        conn.close()
+
+    def test_team_status_reflects_real_elimination_consistently(self):
+        from app.services.simulation.bracket_simulator import get_latest_bracket_view
+
+        conn = _make_db()
+        _seed_complete_groups(conn)
+        r32 = load_r32_qualifiers(conn)
+        home, away = r32["1A"], r32["2B"]
+        conn.execute(
+            "INSERT INTO results (id, home_team_id, away_team_id, home_goals, away_goals, match_date, is_wc) "
+            "VALUES ('r1', ?, ?, 0, 2, '2026-07-02', 1)",
+            (home, away),
+        )
+        conn.commit()
+
+        run_bracket_simulation(conn, "baseline", n_iterations=20)
+        view = get_latest_bracket_view(conn, "baseline")
+
+        status = view["team_status"][home]
+        assert status["is_alive"] is False
+        assert status["eliminated_in_round"] == "round_of_32"
+        assert status["current_status"] == "eliminated"
+
+        alive_status = view["team_status"][away]
+        assert alive_status["is_alive"] is True
+        assert alive_status["eliminated_in_round"] is None
+        assert alive_status["current_status"] == "alive"
         conn.close()
 
 

@@ -109,9 +109,12 @@ class TestEnvelopedEndpoints:
         resp = client.get("/api/public/v1/bracket/latest?model=consensus", headers={"X-API-Key": api_key})
         assert resp.status_code == 200
         body = resp.json()
-        assert body["status"] is None
-        assert body["rounds"] == {}
-        assert body["message"]
+        # /bracket/latest is documented as the enveloped contract — must
+        # return {"data": {...}, "meta": {...}}, not a flat payload.
+        assert "data" in body and "meta" in body
+        assert body["data"]["status"] is None
+        assert body["data"]["rounds"] == {}
+        assert body["data"]["message"]
 
     def test_bracket_runs_envelope_shape(self, client, api_key):
         resp = client.get("/api/public/v1/bracket/runs?model=consensus", headers={"X-API-Key": api_key})

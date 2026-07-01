@@ -212,19 +212,26 @@ def get_bracket_latest(request: Request, model: str = Query(default="consensus")
         view = get_latest_bracket_view(conn, model)
 
     if view["status"] != "completed":
-        return {
-            "model": model, "run_id": None, "status": view["status"],
-            "rounds": {}, "computed_at": None, "message": view["message"],
-        }
+        return _envelope(
+            {
+                "model": model, "run_id": None, "status": view["status"],
+                "rounds": {}, "computed_at": None, "message": view["message"],
+            },
+            cache_ttl_seconds=300,
+        )
 
-    return {
-        "model": model,
-        "run_id": view["run_id"],
-        "status": "completed",
-        "rounds": view["rounds"],
-        "computed_at": view["computed_at"],
-        "meta": {**view["meta"], "cache_ttl_seconds": 300},
-    }
+    return _envelope(
+        {
+            "model": model,
+            "run_id": view["run_id"],
+            "status": "completed",
+            "rounds": view["rounds"],
+            "team_status": view["team_status"],
+            "computed_at": view["computed_at"],
+        },
+        cache_ttl_seconds=300,
+        **view["meta"],
+    )
 
 
 # ---------------------------------------------------------------------------

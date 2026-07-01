@@ -446,6 +446,8 @@ def run_bracket_simulation(
     for team_id in qualifier_ids:
         counts = achieved_counts.get(team_id, {})
         team_summary: dict[str, float] = {}
+        elim_round = eliminated.get(team_id)
+        elim_rank = _ROUND_RANK.get(elim_round) if elim_round else None
         for round_name in _ROUND_ORDER:
             rank = _ROUND_RANK[round_name]
             reached = sum(c for r, c in counts.items() if r >= rank)
@@ -457,7 +459,10 @@ def run_bracket_simulation(
             if team_id in pending and pending[team_id][0] == round_name:
                 _, opponent_id, match_win_prob = pending[team_id]
 
-            is_eliminated = 1 if eliminated.get(team_id) == round_name else 0
+            # A team eliminated in round X stays eliminated for every
+            # subsequent round row too, not just the exact round it lost in
+            # — otherwise QF/SF/FINAL rows would contradict R16's "out".
+            is_eliminated = 1 if elim_rank is not None and rank >= elim_rank else 0
 
             history_rows.append((
                 run_id, model_name, round_name, team_id, advance_prob,
@@ -516,22 +521,44 @@ def get_latest_bracket_view(conn: sqlite3.Connection, model_name: str) -> dict:
         }
 
     rounds: dict[str, list[dict]] = {}
+    elim_rank_by_team: dict[str, int] = {}
     for r in repo.get_run_results(run["id"]):
-        rounds.setdefault(r["round_name"], []).append({
-            "team_id":        r["team_id"],
+        is_eliminated = bool(r["is_eliminated"])
+        round_name = r["round_name"]
+        team_id = r["team_id"]
+        rounds.setdefault(round_name, []).append({
+            "team_id":        team_id,
             "team_name":      r["team_name"],
             "advance_prob":   round(float(r["advance_prob"]), 4),
             "opponent_id":    r["opponent_id"],
             "opponent_name":  r["opponent_name"],
             "match_win_prob": round(float(r["match_win_prob"]), 4) if r["match_win_prob"] is not None else None,
-            "is_eliminated":  bool(r["is_eliminated"]),
+            "is_eliminated":  is_eliminated,
         })
+        if is_eliminated:
+            rank = _ROUND_RANK.get(round_name)
+            if rank is not None:
+                prev = elim_rank_by_team.get(team_id)
+                if prev is None or rank < prev:
+                    elim_rank_by_team[team_id] = rank
+
+    rank_to_round = {v: k for k, v in _ROUND_RANK.items()}
+    team_status: dict[str, dict] = {}
+    for team_id in {row["team_id"] for rows in rounds.values() for row in rows}:
+        elim_rank = elim_rank_by_team.get(team_id)
+        eliminated_in_round = rank_to_round.get(elim_rank) if elim_rank is not None else None
+        team_status[team_id] = {
+            "is_alive":            eliminated_in_round is None,
+            "eliminated_in_round": eliminated_in_round,
+            "current_status":      "eliminated" if eliminated_in_round else "alive",
+        }
 
     return {
         "model": model_name,
         "run_id": run["id"],
         "status": "completed",
         "rounds": rounds,
+        "team_status": team_status,
         "computed_at": run["finished_at"],
         "message": None,
         "meta": {

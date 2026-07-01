@@ -97,23 +97,32 @@ baseline | elo | poisson | poisson_context | ml_calibrated | consensus
 
 ### Respuesta de `bracket/latest` cuando SÍ hay datos
 
+`bracket/latest` usa el contrato enveloped (`{data, meta}`), igual que el
+resto de endpoints nuevos de esta sección — a diferencia del alias legacy
+`bracket/{model_name}`, que devuelve forma plana.
+
 ```json
 {
-  "model": "consensus",
-  "run_id": "abc123",
-  "status": "completed",
-  "rounds": {
-    "round_of_32": [
-      {
-        "team_id": "ARG", "team_name": "Argentina",
-        "advance_prob": 0.72, "opponent_id": "MEX", "opponent_name": "México",
-        "match_win_prob": 0.64, "is_eliminated": false
-      }
-    ]
+  "data": {
+    "model": "consensus",
+    "run_id": "abc123",
+    "status": "completed",
+    "rounds": {
+      "round_of_32": [
+        {
+          "team_id": "ARG", "team_name": "Argentina",
+          "advance_prob": 0.72, "opponent_id": "MEX", "opponent_name": "México",
+          "match_win_prob": 0.64, "is_eliminated": false
+        }
+      ]
+    },
+    "computed_at": "2026-07-01T09:05:00Z"
   },
-  "computed_at": "2026-07-01T09:05:00Z",
-  "meta": { "iterations": 10000, "r32_source": "wc2026_standings",
-            "r32_fetched_at": "2026-07-01T08:32:00Z", "cache_ttl_seconds": 300 }
+  "meta": {
+    "generated_at": "2026-07-01T09:05:03Z", "timezone": "UTC",
+    "cache_ttl_seconds": 300, "iterations": 10000,
+    "r32_source": "wc2026_standings", "r32_fetched_at": "2026-07-01T08:32:00Z"
+  }
 }
 ```
 
@@ -121,9 +130,12 @@ baseline | elo | poisson | poisson_context | ml_calibrated | consensus
 
 ```json
 {
-  "model": "consensus", "run_id": null, "status": "no_r32",
-  "rounds": {}, "computed_at": null,
-  "message": "No hay 32 clasificados definidos todavía. Se actualizó standings, pero la fase de grupos sigue incompleta."
+  "data": {
+    "model": "consensus", "run_id": null, "status": "no_r32",
+    "rounds": {}, "computed_at": null,
+    "message": "No hay 32 clasificados definidos todavía. Se actualizó standings, pero la fase de grupos sigue incompleta."
+  },
+  "meta": { "generated_at": "2026-07-01T09:05:03Z", "timezone": "UTC", "cache_ttl_seconds": 300 }
 }
 ```
 
